@@ -6,6 +6,14 @@ LokaLane should evolve from a map app into a local intent network. The map is th
 
 The long-term business is not only advertising. It is a controlled local information market where businesses and users pay when information creates measurable intent: a visit, route start, inquiry, booking lead, listing exposure, or saved offer.
 
+## AI-Native Company Model
+
+LokaLane should be operated like a Singapore-local, AI-native small company rather than a traditional staffed startup. The target operating model is one founder plus one accountable Singapore local operator, amplified by AI agents for engineering, support drafting, moderation triage, localization, analytics, merchant onboarding and compliance checklists.
+
+This model works only if the product scope stays narrow, the stack stays managed/serverless, admin workflows exist before public UGC, and humans keep final control over money, bans, removals, PDPA requests, app-store submissions and safety-sensitive decisions.
+
+See [AI-native Singapore company plan](ai-native-singapore-company.md).
+
 ## Product Layers
 
 1. Mobility trust layer: OneMap, LTA, OSM, curated POIs, traffic, parking, transit, cross-border routing.
@@ -131,4 +139,3 @@ Unit economics:
 - Moderation cost per approved listing.
 - Revenue per 1,000 local-intent sessions.
 - Paid listing conversion by category.
-

@@ -78,6 +78,7 @@ Worker routes:
 
 - [Project brief](docs/project-brief.md)
 - [Architecture](docs/architecture.md)
+- [AI-native Singapore company plan](docs/ai-native-singapore-company.md)
 - [Business architecture](docs/business-architecture.md)
 - [Data governance](docs/data-governance.md)
 - [Local marketplace technical architecture](docs/local-marketplace-technical-architecture.md)

@@ -26,6 +26,7 @@ Revenue must never make the map feel chaotic. The user should feel that LokaLane
 - Lead fee for high-intent categories after quality is proven.
 - Store-billing path for native digital boosts and subscriptions.
 - Web/PWA payment path for early experiments.
+- Singapore company payment path after incorporation: business bank account, accounting records, refund process and clear tax review before scaling.
 
 ## Phase 4: B2B
 
@@ -43,3 +44,5 @@ Revenue must never make the map feel chaotic. The user should feel that LokaLane
 ## Unit Economics Guardrail
 
 Do not scale paid map providers before retention is proven. Keep the base system on free/low-cost providers, cache aggressively, and reserve paid data for high-value routing and traffic improvements.
+
+Keep the company operable by a tiny AI-native team: every monetization feature must include automated reporting, human-review controls, refund handling and support templates before launch.

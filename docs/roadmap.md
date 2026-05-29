@@ -6,6 +6,8 @@
 - Free provider strategy.
 - OneMap proxy boundary.
 - Initial CI checks.
+- AI-native Singapore company operating plan.
+- Personal-data-safe company setup checklist with no family/private identity details committed to the repo.
 
 ## Milestone 1: Singapore Alpha
 
@@ -38,6 +40,7 @@
 - Read-only local marketplace discovery for food, attractions, rentals and second-hand.
 - UGC policy, report flow and moderation queue before public posting.
 - Information-fee pilot on web/PWA before native in-app purchase implementation.
+- Singapore company readiness: IP assignment, privacy/terms, data protection contact, vendor register, accounting flow and CSP review.
 
 ## Milestone 4: Native App
 
@@ -45,6 +48,7 @@
 - Push notifications for saved commutes.
 - Background location permission strategy.
 - App Store and Google Play compliance review.
+- Company-owned store-account path once incorporation is ready.
 
 ## Milestone 5: Local Intent Marketplace
 

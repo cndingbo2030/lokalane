@@ -4,6 +4,8 @@
 
 Keep the map fast while adding marketplace depth behind it. Marketplace features should be modular, cacheable and safe to disable without breaking map search or navigation.
 
+The architecture must be operable by a tiny AI-native team. Prefer managed services, serverless APIs, strong admin tooling, audit logs and automated checks over custom infrastructure that needs daily maintenance.
+
 ## System Shape
 
 ```mermaid
@@ -212,6 +214,16 @@ Must exist before public marketplace launch:
 - Search/recommendation override.
 - Merchant verification workflow.
 
+## AI-Native Ops Controls
+
+The system should assume that AI agents will draft code, support replies, moderation suggestions, translations and analytics summaries. That requires product-level controls:
+
+- Separate production secrets from agent prompts and client bundles.
+- Require human approval for account bans, high-risk rental removals, refunds, paid campaign disputes and data deletion.
+- Store AI moderation reason codes and reviewer decisions.
+- Add internal dashboards for provider health, listing review backlog, user reports, paid listing density and complaint rate.
+- Keep all risky automation behind feature flags.
+
 ## Step-By-Step Build Plan
 
 ### Step 1: Read-Only Discovery
@@ -252,4 +264,3 @@ Must exist before public marketplace launch:
 - AI listing rewrite.
 - AI recommendations by mode, route, time and weather.
 - Human review remains available for appeals.
-
