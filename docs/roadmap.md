@@ -16,6 +16,9 @@
 - Basic user correction form.
 - Provider status chips in search results.
 - Moderation-ready correction payloads.
+- Map/Commute/Saved/Report tab shell.
+- Navigation-state UI with sponsored content hidden during active guidance.
+- First-pass map overlays for traffic, parking, bus, EV and community reports.
 
 ## Milestone 2: Cross-Border Beta
 

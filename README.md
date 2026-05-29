@@ -15,6 +15,11 @@ LokaLane is a Singapore-first, Malaysia-ready local navigation map for commuters
 - Data-source abstraction for OneMap, LTA DataMall, OSM, curated records and community reports.
 - Hybrid search: local seed results are instant, OneMap results enrich the list when the edge proxy is configured.
 - Local correction queue for wrong pins, closures, missing details and duplicates.
+- Product-level app flows: Map, Commute, Saved, and Report tabs.
+- Simulated active navigation state with guidance banner and ad suppression.
+- Map overlays for traffic, buses, parking, EV chargers, and community reports.
+- Saved places workflow for frequent destinations and checkpoint shortcuts.
+- Community incident reporting workflow for jams, accidents, closures, hazards, and police presence.
 - Respectful sponsored slot model that stays outside active navigation.
 - Cloudflare Worker-style provider proxy sample so OneMap and LTA credentials stay server-side.
 

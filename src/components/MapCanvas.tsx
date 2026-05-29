@@ -1,11 +1,14 @@
 import L from 'leaflet'
 import { useEffect, useMemo, useRef } from 'react'
-import type { BaseMapMode, Place } from '../domain/types'
+import type { BaseMapMode, IncidentReport, LayerPoint, Place } from '../domain/types'
 
 interface MapCanvasProps {
   places: Place[]
   selectedPlace?: Place
   baseMapMode: BaseMapMode
+  incidentReports: IncidentReport[]
+  layerPoints: LayerPoint[]
+  visibleLayerIds: string[]
   onSelectPlace: (placeId: string) => void
 }
 
@@ -15,12 +18,16 @@ export function MapCanvas({
   places,
   selectedPlace,
   baseMapMode,
+  incidentReports,
+  layerPoints,
+  visibleLayerIds,
   onSelectPlace,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const markerLayerRef = useRef<L.LayerGroup | null>(null)
+  const overlayLayerRef = useRef<L.LayerGroup | null>(null)
 
   const tileLayer = useMemo(() => createTileLayer(baseMapMode), [baseMapMode])
 
@@ -38,6 +45,7 @@ export function MapCanvas({
 
     L.control.zoom({ position: 'bottomright' }).addTo(map)
     markerLayerRef.current = L.layerGroup().addTo(map)
+    overlayLayerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
 
     return () => {
@@ -83,6 +91,37 @@ export function MapCanvas({
       marker.addTo(markerLayer)
     })
   }, [onSelectPlace, places, selectedPlace?.id])
+
+  useEffect(() => {
+    const overlayLayer = overlayLayerRef.current
+    if (!overlayLayer) {
+      return
+    }
+
+    overlayLayer.clearLayers()
+
+    const reportsAsPoints = incidentReports.map<LayerPoint>((report) => ({
+      id: report.id,
+      layerId: 'community',
+      title: getIncidentLabel(report.type),
+      subtitle: report.note || 'New commuter report',
+      coordinates: report.coordinates,
+      sourceId: 'community',
+      severity: report.type === 'accident' || report.type === 'closure' ? 'high' : 'medium',
+      updatedAt: report.createdAt,
+    }))
+
+    const visiblePoints = [...layerPoints, ...reportsAsPoints].filter((point) =>
+      visibleLayerIds.includes(point.layerId),
+    )
+
+    visiblePoints.forEach((point) => {
+      L.marker([point.coordinates.lat, point.coordinates.lng], {
+        icon: createLayerIcon(point),
+        title: `${point.title}: ${point.subtitle}`,
+      }).addTo(overlayLayer)
+    })
+  }, [incidentReports, layerPoints, visibleLayerIds])
 
   useEffect(() => {
     const map = mapRef.current
@@ -142,4 +181,37 @@ function getCategoryInitial(category: Place['category']) {
   }
 
   return labels[category]
+}
+
+function createLayerIcon(point: LayerPoint) {
+  return L.divIcon({
+    className: `layer-marker layer-${point.layerId} severity-${point.severity}`,
+    html: `<span>${getLayerInitial(point.layerId)}</span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  })
+}
+
+function getLayerInitial(layerId: LayerPoint['layerId']) {
+  const labels: Record<LayerPoint['layerId'], string> = {
+    traffic: '!',
+    bus: 'B',
+    parking: 'P',
+    ev: 'E',
+    community: 'R',
+  }
+
+  return labels[layerId]
+}
+
+function getIncidentLabel(type: IncidentReport['type']) {
+  const labels: Record<IncidentReport['type'], string> = {
+    jam: 'Traffic jam',
+    accident: 'Accident',
+    closure: 'Road closure',
+    hazard: 'Road hazard',
+    police: 'Police presence',
+  }
+
+  return labels[type]
 }

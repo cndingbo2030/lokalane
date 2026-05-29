@@ -4,6 +4,8 @@ export type BaseMapMode = 'regional' | 'sg-official'
 
 export type MobilityMode = 'drive' | 'transit' | 'walk'
 
+export type AppView = 'map' | 'commute' | 'saved' | 'report'
+
 export type PlaceCategory =
   | 'checkpoint'
   | 'transport'
@@ -68,6 +70,37 @@ export interface RouteInsight {
   confidence: number
   sourceId: DataSourceId
   tollNote?: string
+}
+
+export type LayerPointKind =
+  | 'traffic'
+  | 'bus'
+  | 'parking'
+  | 'ev'
+  | 'community'
+
+export type IncidentType = 'jam' | 'accident' | 'closure' | 'hazard' | 'police'
+
+export type Severity = 'low' | 'medium' | 'high'
+
+export interface LayerPoint {
+  id: string
+  layerId: LayerPointKind
+  title: string
+  subtitle: string
+  coordinates: Coordinates
+  sourceId: DataSourceId
+  severity: Severity
+  updatedAt: string
+}
+
+export interface IncidentReport {
+  id: string
+  type: IncidentType
+  placeId: string
+  note: string
+  coordinates: Coordinates
+  createdAt: string
 }
 
 export interface ProviderSignal {

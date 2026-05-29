@@ -1,12 +1,22 @@
-import { ExternalLink, Gauge, MapPinned, Navigation2 } from 'lucide-react'
+import { Bookmark, BookmarkCheck, ExternalLink, Gauge, MapPinned, Navigation2 } from 'lucide-react'
 import { getSource, getSourceLabel } from '../data/sources'
 import type { Place } from '../domain/types'
 
 interface PlaceDetailsProps {
   place?: Place
+  isNavigating: boolean
+  isSaved: boolean
+  onStartNavigation: () => void
+  onToggleSaved: () => void
 }
 
-export function PlaceDetails({ place }: PlaceDetailsProps) {
+export function PlaceDetails({
+  place,
+  isNavigating,
+  isSaved,
+  onStartNavigation,
+  onToggleSaved,
+}: PlaceDetailsProps) {
   if (!place) {
     return null
   }
@@ -37,9 +47,17 @@ export function PlaceDetails({ place }: PlaceDetailsProps) {
       <p className="signal-line">{place.signal}</p>
 
       <div className="action-row">
+        <button type="button" className="primary-action" onClick={onStartNavigation}>
+          <Navigation2 size={17} />
+          {isNavigating ? 'Reroute' : 'Start'}
+        </button>
+        <button type="button" onClick={onToggleSaved}>
+          {isSaved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
+          {isSaved ? 'Saved' : 'Save'}
+        </button>
         <a href={mapsUrl} target="_blank" rel="noreferrer">
           <Navigation2 size={17} />
-          Open route
+          External
         </a>
         <a href={sourceUrl} target="_blank" rel="noreferrer">
           <ExternalLink size={17} />
