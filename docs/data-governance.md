@@ -19,6 +19,16 @@ Every production record should store:
 - Change history.
 - Reporter or import job identifier.
 
+## Correction Queue
+
+The current app stores correction reports locally as a product prototype. Production should persist them to a moderation queue with:
+
+- Duplicate grouping by place, reason and reporter trust.
+- Abuse scoring and rate limits.
+- Before/after value snapshots.
+- Reviewer decision state.
+- Automatic confidence adjustment only after validation.
+
 ## OneMap
 
 Use OneMap for Singapore addresses, official map rendering, reverse geocoding and routing experiments. Search and other authenticated APIs must be called from a server-side proxy, not from client code.

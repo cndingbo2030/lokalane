@@ -1,11 +1,12 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { BottomSheet } from './components/BottomSheet'
 import { LayerDock } from './components/LayerDock'
 import { MapCanvas } from './components/MapCanvas'
 import { SearchPanel } from './components/SearchPanel'
 import { TopBar } from './components/TopBar'
 import { places } from './data/places'
-import { getPlaceById, searchPlaces } from './services/search'
+import { useHybridSearch } from './hooks/useHybridSearch'
+import { getPlaceById } from './services/search'
 import { useAppStore } from './state/useAppStore'
 
 function App() {
@@ -13,9 +14,11 @@ function App() {
     baseMapMode,
     countryFilter,
     mobilityMode,
+    qualityReports,
     query,
     selectedPlaceId,
     visibleLayerIds,
+    addQualityReport,
     setBaseMapMode,
     setCountryFilter,
     setMobilityMode,
@@ -24,12 +27,16 @@ function App() {
     toggleLayer,
   } = useAppStore()
 
-  const results = useMemo(
-    () => searchPlaces(query, { country: countryFilter, limit: 7 }),
-    [countryFilter, query],
-  )
+  const { places: results, signals, isLoading } = useHybridSearch(query, {
+    country: countryFilter,
+    limit: 7,
+  })
 
-  const selectedPlace = getPlaceById(selectedPlaceId) ?? results[0] ?? places[0]
+  const selectedPlace =
+    results.find((place) => place.id === selectedPlaceId) ??
+    getPlaceById(selectedPlaceId) ??
+    results[0] ??
+    places[0]
 
   const handleSelectPlace = useCallback(
     (placeId: string) => {
@@ -59,6 +66,8 @@ function App() {
       <SearchPanel
         results={results}
         selectedPlace={selectedPlace}
+        signals={signals}
+        isLoading={isLoading}
         onSelectPlace={handleSelectPlace}
       />
 
@@ -67,7 +76,13 @@ function App() {
       <BottomSheet
         selectedPlace={selectedPlace}
         mobilityMode={mobilityMode}
+        reportCount={
+          selectedPlace
+            ? qualityReports.filter((report) => report.placeId === selectedPlace.id).length
+            : 0
+        }
         onMobilityModeChange={setMobilityMode}
+        onQualityReport={addQualityReport}
       />
     </main>
   )

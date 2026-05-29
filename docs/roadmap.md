@@ -14,6 +14,8 @@
 - LTA bus arrival feed.
 - POI detail quality model.
 - Basic user correction form.
+- Provider status chips in search results.
+- Moderation-ready correction payloads.
 
 ## Milestone 2: Cross-Border Beta
 

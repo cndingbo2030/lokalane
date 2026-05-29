@@ -13,6 +13,10 @@ export interface OneMapProxyResponse {
   results: OneMapSearchResult[]
 }
 
+export function hasOneMapProxy() {
+  return Boolean(import.meta.env.VITE_LOKALANE_API_BASE)
+}
+
 export async function searchOneMapProxy(
   query: string,
   fetcher: typeof fetch = fetch,

@@ -13,8 +13,10 @@ LokaLane is a Singapore-first, Malaysia-ready local navigation map for commuters
 - Regional SG/MY map mode using OpenStreetMap for early free coverage.
 - Curated SG/MY seed POIs for checkpoints, malls, transport, parking and landmarks.
 - Data-source abstraction for OneMap, LTA DataMall, OSM, curated records and community reports.
+- Hybrid search: local seed results are instant, OneMap results enrich the list when the edge proxy is configured.
+- Local correction queue for wrong pins, closures, missing details and duplicates.
 - Respectful sponsored slot model that stays outside active navigation.
-- Cloudflare Worker-style OneMap proxy sample so API credentials stay server-side.
+- Cloudflare Worker-style provider proxy sample so OneMap and LTA credentials stay server-side.
 
 ## Free-First Stack
 
@@ -44,13 +46,20 @@ npm run build
 
 ## OneMap Integration
 
-The app is designed to call a server-side proxy at `VITE_LOKALANE_API_BASE`. Do not put OneMap credentials in Vite client code.
+The app is designed to call a server-side proxy at `VITE_LOKALANE_API_BASE`. Do not put OneMap or LTA credentials in Vite client code.
 
 ```bash
 cp .env.example .env.local
 ```
 
-Set `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` only in the server/worker runtime.
+Set `ONEMAP_EMAIL`, `ONEMAP_PASSWORD`, and `LTA_ACCOUNT_KEY` only in the server/worker runtime.
+
+Worker routes:
+
+- `GET /health`
+- `GET /onemap/search?q=orchard`
+- `GET /lta/carparks`
+- `GET /lta/bus-arrivals?busStopCode=01012`
 
 ## Documentation
 

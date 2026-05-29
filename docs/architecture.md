@@ -21,7 +21,7 @@ flowchart LR
 - `src/services`: search and provider integration boundaries.
 - `src/state`: app interaction state.
 - `src/components`: map surface and UI panels.
-- `api/onemap-worker.ts`: Cloudflare Worker style proxy sketch for OneMap search.
+- `api/onemap-worker.ts`: Cloudflare Worker style proxy for OneMap search plus LTA parking and bus feeds.
 
 ## Production Direction
 
@@ -30,6 +30,20 @@ flowchart LR
 3. Store user reports and POI corrections in PostGIS.
 4. Add moderation, confidence scoring and source history before public crowdsourcing.
 5. Use native mobile shells only after the PWA interaction model proves retention.
+
+## Search Pipeline
+
+```mermaid
+flowchart LR
+  Query["User query"] --> Local["Curated seed index"]
+  Query --> Proxy["Edge proxy when configured"]
+  Proxy --> OneMap["OneMap Search"]
+  Local --> Merge["Deduplicate and rank"]
+  OneMap --> Merge
+  Merge --> UI["Result list with source signals"]
+```
+
+The UI must never wait on live providers before showing useful local results. Live providers enrich the list and raise confidence, but the fallback must remain fast and usable.
 
 ## Free-First Provider Choices
 

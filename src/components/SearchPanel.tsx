@@ -1,14 +1,22 @@
-import { MapPin, ShieldCheck } from 'lucide-react'
+import { CircleAlert, LoaderCircle, MapPin, ShieldCheck } from 'lucide-react'
 import { getSourceLabel } from '../data/sources'
-import type { Place } from '../domain/types'
+import type { Place, ProviderSignal } from '../domain/types'
 
 interface SearchPanelProps {
   results: Place[]
   selectedPlace?: Place
+  signals: ProviderSignal[]
+  isLoading: boolean
   onSelectPlace: (placeId: string) => void
 }
 
-export function SearchPanel({ results, selectedPlace, onSelectPlace }: SearchPanelProps) {
+export function SearchPanel({
+  results,
+  selectedPlace,
+  signals,
+  isLoading,
+  onSelectPlace,
+}: SearchPanelProps) {
   return (
     <aside className="search-panel" aria-label="Search results">
       <div className="panel-heading">
@@ -16,7 +24,20 @@ export function SearchPanel({ results, selectedPlace, onSelectPlace }: SearchPan
           <p className="eyebrow">Local precision layer</p>
           <h1>Singapore-first, Malaysia-ready map</h1>
         </div>
-        <span className="live-chip">Alpha</span>
+        <span className={isLoading ? 'live-chip loading' : 'live-chip'}>
+          {isLoading ? <LoaderCircle size={13} /> : null}
+          Alpha
+        </span>
+      </div>
+
+      <div className="provider-strip" aria-label="Data provider status">
+        {signals.map((signal) => (
+          <span key={signal.id} className={`provider-pill ${signal.status}`}>
+            {signal.status === 'error' ? <CircleAlert size={13} /> : null}
+            <strong>{signal.label}</strong>
+            {signal.latencyMs ? `${signal.latencyMs}ms` : signal.message}
+          </span>
+        ))}
       </div>
 
       <div className="result-list">

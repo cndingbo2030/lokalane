@@ -1,19 +1,24 @@
 import { BadgeDollarSign, Clock3, Route, Sparkles } from 'lucide-react'
 import { routeInsights } from '../data/layers'
 import { getSourceLabel } from '../data/sources'
-import type { MobilityMode, Place } from '../domain/types'
+import type { MobilityMode, Place, QualityReport } from '../domain/types'
 import { PlaceDetails } from './PlaceDetails'
+import { QualityReportPanel } from './QualityReportPanel'
 
 interface BottomSheetProps {
   selectedPlace?: Place
   mobilityMode: MobilityMode
+  reportCount: number
   onMobilityModeChange: (mode: MobilityMode) => void
+  onQualityReport: (report: Omit<QualityReport, 'createdAt'>) => void
 }
 
 export function BottomSheet({
   selectedPlace,
   mobilityMode,
+  reportCount,
   onMobilityModeChange,
+  onQualityReport,
 }: BottomSheetProps) {
   return (
     <aside className="bottom-sheet" aria-label="Route intelligence">
@@ -31,6 +36,12 @@ export function BottomSheet({
       </div>
 
       <PlaceDetails place={selectedPlace} />
+
+      <QualityReportPanel
+        place={selectedPlace}
+        reportCount={reportCount}
+        onSubmit={onQualityReport}
+      />
 
       <section className="route-stack" aria-label="Suggested routes">
         {routeInsights.map((route) => (

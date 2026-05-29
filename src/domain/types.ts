@@ -20,6 +20,8 @@ export type DataSourceId =
   | 'lokalane-curated'
   | 'community'
 
+export type ProviderStatus = 'idle' | 'ready' | 'loading' | 'success' | 'unconfigured' | 'error'
+
 export interface Coordinates {
   lat: number
   lng: number
@@ -66,4 +68,19 @@ export interface RouteInsight {
   confidence: number
   sourceId: DataSourceId
   tollNote?: string
+}
+
+export interface ProviderSignal {
+  id: DataSourceId
+  status: ProviderStatus
+  label: string
+  message: string
+  latencyMs?: number
+}
+
+export interface QualityReport {
+  placeId: string
+  reason: 'wrong-location' | 'closed' | 'missing-detail' | 'duplicate' | 'other'
+  note: string
+  createdAt: string
 }

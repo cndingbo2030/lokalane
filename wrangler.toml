@@ -1,0 +1,9 @@
+name = "lokalane-edge"
+main = "api/onemap-worker.ts"
+compatibility_date = "2026-05-29"
+
+[vars]
+# Runtime secrets should be set with:
+# npx wrangler secret put ONEMAP_EMAIL
+# npx wrangler secret put ONEMAP_PASSWORD
+# npx wrangler secret put LTA_ACCOUNT_KEY

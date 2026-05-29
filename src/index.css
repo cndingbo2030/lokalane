@@ -41,6 +41,7 @@ body {
 
 button,
 input,
+textarea,
 a {
   font: inherit;
 }
@@ -233,6 +234,7 @@ h2 {
 .live-chip,
 .confidence {
   display: inline-flex;
+  gap: 5px;
   align-items: center;
   min-height: 26px;
   padding: 0 9px;
@@ -242,6 +244,53 @@ h2 {
   font-size: 0.72rem;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.live-chip.loading svg {
+  animation: spin 0.9s linear infinite;
+}
+
+.provider-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 14px;
+}
+
+.provider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.provider-pill strong {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.provider-pill.success {
+  border-color: #c5e3d5;
+  background: #eff8f3;
+}
+
+.provider-pill.unconfigured {
+  border-color: #e7dab0;
+  background: #fff9e7;
+}
+
+.provider-pill.error {
+  border-color: #f1c7bb;
+  color: #8f2f1c;
+  background: #fff2ee;
 }
 
 .result-list {
@@ -375,6 +424,112 @@ h2 {
   padding: 2px 0;
 }
 
+.quality-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #cfe1db;
+  border-radius: 8px;
+  background: #f7fbf8;
+}
+
+.quality-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.quality-heading div {
+  display: grid;
+  gap: 2px;
+}
+
+.quality-heading strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.quality-heading span,
+.report-note span,
+.report-success {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.quality-icon {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--green);
+  background: #e2f1ea;
+}
+
+.reason-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.reason-grid button {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 780;
+}
+
+.reason-grid button.active {
+  border-color: rgba(23, 102, 79, 0.36);
+  color: #ffffff;
+  background: var(--green);
+}
+
+.report-note {
+  display: grid;
+  gap: 5px;
+}
+
+.report-note textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  outline: 0;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 0.8rem;
+}
+
+.report-note textarea:focus {
+  border-color: rgba(23, 102, 79, 0.48);
+}
+
+.submit-report {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--green);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.submit-report:disabled {
+  cursor: not-allowed;
+  color: #8a948f;
+  background: #dce3df;
+}
+
 .metric-strip,
 .action-row {
   display: flex;
@@ -488,14 +643,21 @@ h2 {
   font-size: 10px;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 920px) {
   .top-bar {
     top: 10px;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .brand-lockup {
     grid-column: 1;
+    grid-row: 1;
   }
 
   .search-shell {
@@ -503,8 +665,14 @@ h2 {
     grid-row: 2;
   }
 
-  .segmented-controls,
+  .segmented-controls {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
   .icon-toggle-group {
+    grid-column: 3;
     grid-row: 1;
   }
 
@@ -557,11 +725,52 @@ h2 {
     font-size: 0.96rem;
   }
 
+  .top-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .brand-lockup {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .icon-toggle-group {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .search-shell {
+    grid-row: 2;
+  }
+
+  .segmented-controls {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+  }
+
+  .segmented-controls button {
+    flex: 1 1 0;
+  }
+
+  .search-panel {
+    top: 188px;
+    max-height: 30svh;
+  }
+
+  .layer-dock {
+    top: 188px;
+  }
+
   .route-row {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .eta {
     grid-column: 2;
+  }
+
+  .reason-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
