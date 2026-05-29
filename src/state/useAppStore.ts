@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { mapLayers } from '../data/layers'
+import { modeProfiles } from '../data/modes'
 import type {
   AppView,
   BaseMapMode,
@@ -7,6 +8,7 @@ import type {
   IncidentReport,
   MobilityMode,
   QualityReport,
+  UserMode,
 } from '../domain/types'
 
 interface AppState {
@@ -21,6 +23,7 @@ interface AppState {
   query: string
   savedPlaceIds: string[]
   selectedPlaceId: string
+  userMode: UserMode
   visibleLayerIds: string[]
   addIncidentReport: (report: Omit<IncidentReport, 'id' | 'createdAt'>) => void
   addQualityReport: (report: Omit<QualityReport, 'createdAt'>) => void
@@ -32,6 +35,7 @@ interface AppState {
   setMobilityMode: (mode: MobilityMode) => void
   setQuery: (query: string) => void
   setSelectedPlaceId: (placeId: string) => void
+  setUserMode: (mode: UserMode) => void
   toggleSavedPlace: (placeId: string) => void
   toggleLayer: (layerId: string) => void
 }
@@ -48,6 +52,7 @@ export const useAppStore = create<AppState>((set) => ({
   query: '',
   savedPlaceIds: ['woodlands-checkpoint', 'jb-city-square'],
   selectedPlaceId: 'woodlands-checkpoint',
+  userMode: 'visitor',
   visibleLayerIds: mapLayers
     .filter((layer) => layer.defaultVisible)
     .map((layer) => layer.id),
@@ -84,6 +89,17 @@ export const useAppStore = create<AppState>((set) => ({
   setMobilityMode: (mobilityMode) => set({ mobilityMode }),
   setQuery: (query) => set({ query }),
   setSelectedPlaceId: (selectedPlaceId) => set({ selectedPlaceId }),
+  setUserMode: (userMode) => {
+    const profile = modeProfiles[userMode]
+    set({
+      activeView: profile.defaultView,
+      countryFilter: profile.countryFilter,
+      isNavigating: false,
+      mobilityMode: profile.mobilityMode,
+      userMode,
+      visibleLayerIds: profile.visibleLayerIds,
+    })
+  },
   toggleSavedPlace: (placeId) =>
     set((state) => {
       const isSaved = state.savedPlaceIds.includes(placeId)

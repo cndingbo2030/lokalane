@@ -6,6 +6,7 @@ import { MapCanvas } from './components/MapCanvas'
 import { NavigationBanner } from './components/NavigationBanner'
 import { SearchPanel } from './components/SearchPanel'
 import { TopBar } from './components/TopBar'
+import { modeProfiles } from './data/modes'
 import { layerPoints } from './data/overlays'
 import { places } from './data/places'
 import { useHybridSearch } from './hooks/useHybridSearch'
@@ -25,6 +26,7 @@ function App() {
     query,
     savedPlaceIds,
     selectedPlaceId,
+    userMode,
     visibleLayerIds,
     addIncidentReport,
     addQualityReport,
@@ -36,6 +38,7 @@ function App() {
     setMobilityMode,
     setQuery,
     setSelectedPlaceId,
+    setUserMode,
     toggleSavedPlace,
     toggleLayer,
   } = useAppStore()
@@ -44,6 +47,7 @@ function App() {
     country: countryFilter,
     limit: 7,
   })
+  const activeModeProfile = modeProfiles[userMode]
 
   const selectedPlace =
     results.find((place) => place.id === selectedPlaceId) ??
@@ -96,6 +100,7 @@ function App() {
         baseMapMode={baseMapMode}
         countryFilter={countryFilter}
         query={query}
+        searchPlaceholder={activeModeProfile.searchPlaceholder}
         onBaseMapChange={setBaseMapMode}
         onCountryChange={setCountryFilter}
         onQueryChange={setQuery}
@@ -106,6 +111,8 @@ function App() {
         selectedPlace={selectedPlace}
         signals={signals}
         isLoading={isLoading}
+        userMode={userMode}
+        onUserModeChange={setUserMode}
         onSelectPlace={handleSelectPlace}
       />
 
@@ -125,6 +132,7 @@ function App() {
             ? qualityReports.filter((report) => report.placeId === selectedPlace.id).length
             : 0
         }
+        userMode={userMode}
         onIncidentReport={addIncidentReport}
         onMobilityModeChange={setMobilityMode}
         onRouteSelect={setActiveRouteId}

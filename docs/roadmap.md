@@ -19,6 +19,8 @@
 - Map/Commute/Saved/Report tab shell.
 - Navigation-state UI with sponsored content hidden during active guidance.
 - First-pass map overlays for traffic, parking, bus, EV and community reports.
+- Visitor, local commute, driver and public transport modes.
+- Public transport panel for MRT, bus, cross-border transit, crowding and alerts.
 
 ## Milestone 2: Cross-Border Beta
 

@@ -51,4 +51,16 @@ The UI must never wait on live providers before showing useful local results. Li
 - Regional base map: OpenStreetMap during MVP.
 - Search seed: curated local POIs, then OneMap proxy for Singapore.
 - Transport: LTA DataMall behind the same edge proxy.
+- Malaysia transit: data.gov.my / GTFS-style sources should be integrated through the provider gateway once coverage and licence fit are validated.
 - Hosting: Vercel/Netlify plus Cloudflare Workers.
+
+## User Modes
+
+LokaLane now has four product modes:
+
+- Visitor mode: attractions, airport, hotels, MRT-friendly routes and cross-border day trips.
+- Local commute: repeat SG journeys, bus arrivals, MRT crowding, train alerts and work/school destinations.
+- Driver mode: traffic, parking, EV charging and incidents.
+- Public transport: MRT, bus, cross-border public transport and service quality.
+
+Mode changes are product state, not just styling. Each mode changes default view, mobility mode, country filter, visible layers and search placeholder.

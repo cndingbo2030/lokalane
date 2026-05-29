@@ -6,6 +6,8 @@ export type MobilityMode = 'drive' | 'transit' | 'walk'
 
 export type AppView = 'map' | 'commute' | 'saved' | 'report'
 
+export type UserMode = 'visitor' | 'local' | 'driver' | 'transit'
+
 export type PlaceCategory =
   | 'checkpoint'
   | 'transport'
@@ -83,6 +85,10 @@ export type IncidentType = 'jam' | 'accident' | 'closure' | 'hazard' | 'police'
 
 export type Severity = 'low' | 'medium' | 'high'
 
+export type TransitMode = 'mrt' | 'lrt' | 'bus' | 'cross-border' | 'rail'
+
+export type TransitCrowdLevel = 'low' | 'moderate' | 'high' | 'unknown'
+
 export interface LayerPoint {
   id: string
   layerId: LayerPointKind
@@ -101,6 +107,65 @@ export interface IncidentReport {
   note: string
   coordinates: Coordinates
   createdAt: string
+}
+
+export interface ModeProfile {
+  id: UserMode
+  label: string
+  shortLabel: string
+  description: string
+  defaultView: AppView
+  mobilityMode: MobilityMode
+  countryFilter: CountryCode | 'ALL'
+  visibleLayerIds: string[]
+  searchPlaceholder: string
+}
+
+export interface TransitLine {
+  id: string
+  label: string
+  mode: TransitMode
+  area: string
+  color: string
+  status: 'normal' | 'crowded' | 'disrupted' | 'planned'
+  crowdLevel: TransitCrowdLevel
+  sourceId: DataSourceId
+  updatedAt: string
+}
+
+export interface TransitStop {
+  id: string
+  name: string
+  code: string
+  mode: TransitMode
+  country: CountryCode
+  area: string
+  coordinates: Coordinates
+  lines: string[]
+  crowdLevel: TransitCrowdLevel
+}
+
+export interface TransitArrival {
+  id: string
+  stopId: string
+  service: string
+  destination: string
+  minutes: number
+  load: TransitCrowdLevel
+  sourceId: DataSourceId
+}
+
+export interface TransitJourney {
+  id: string
+  title: string
+  subtitle: string
+  from: string
+  to: string
+  durationMinutes: number
+  walkMinutes: number
+  fareNote: string
+  steps: string[]
+  bestFor: UserMode[]
 }
 
 export interface ProviderSignal {

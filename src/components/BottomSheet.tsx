@@ -7,9 +7,12 @@ import type {
   MobilityMode,
   Place,
   QualityReport,
+  UserMode,
 } from '../domain/types'
 import { CommutePanel } from './CommutePanel'
+import { ModeSummaryPanel } from './ModeSummaryPanel'
 import { PlaceDetails } from './PlaceDetails'
+import { PublicTransportPanel } from './PublicTransportPanel'
 import { QualityReportPanel } from './QualityReportPanel'
 import { ReportIncidentPanel } from './ReportIncidentPanel'
 import { SavedPlacesPanel } from './SavedPlacesPanel'
@@ -24,6 +27,7 @@ interface BottomSheetProps {
   savedPlaces: Place[]
   mobilityMode: MobilityMode
   reportCount: number
+  userMode: UserMode
   onIncidentReport: (report: Omit<IncidentReport, 'id' | 'createdAt'>) => void
   onMobilityModeChange: (mode: MobilityMode) => void
   onRouteSelect: (routeId: string) => void
@@ -43,6 +47,7 @@ export function BottomSheet({
   savedPlaces,
   mobilityMode,
   reportCount,
+  userMode,
   onIncidentReport,
   onMobilityModeChange,
   onRouteSelect,
@@ -54,6 +59,11 @@ export function BottomSheet({
   if (activeView === 'commute') {
     return (
       <aside className="bottom-sheet" aria-label="Commute intelligence">
+        <ModeSummaryPanel userMode={userMode} />
+        <PublicTransportPanel
+          userMode={userMode}
+          onStartNavigation={onStartNavigation}
+        />
         <CommutePanel
           activeRouteId={activeRouteId}
           onSelectRoute={onRouteSelect}
@@ -118,6 +128,13 @@ export function BottomSheet({
           }
         }}
       />
+
+      {userMode === 'visitor' || userMode === 'transit' ? (
+        <PublicTransportPanel
+          userMode={userMode}
+          onStartNavigation={onStartNavigation}
+        />
+      ) : null}
 
       <QualityReportPanel
         place={selectedPlace}

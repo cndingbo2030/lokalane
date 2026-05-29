@@ -65,6 +65,8 @@ Worker routes:
 - `GET /onemap/search?q=orchard`
 - `GET /lta/carparks`
 - `GET /lta/bus-arrivals?busStopCode=01012`
+- `GET /lta/train-alerts`
+- `GET /lta/station-crowd?trainLine=NSL`
 
 ## Documentation
 

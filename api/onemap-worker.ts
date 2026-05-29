@@ -47,6 +47,14 @@ interface LtaBusArrivalResponse {
   Services: unknown[]
 }
 
+interface LtaTrainAlertsResponse {
+  value?: unknown[]
+}
+
+interface LtaStationCrowdResponse {
+  value?: unknown[]
+}
+
 let cachedToken: string | null = null
 let cachedTokenExpiresAt = 0
 
@@ -79,6 +87,14 @@ export default {
 
       if (url.pathname === '/lta/bus-arrivals') {
         return handleLtaBusArrivals(url, env)
+      }
+
+      if (url.pathname === '/lta/train-alerts') {
+        return handleLtaTrainAlerts(env)
+      }
+
+      if (url.pathname === '/lta/station-crowd') {
+        return handleLtaStationCrowd(url, env)
       }
 
       return json({ error: 'Not found' }, 404)
@@ -162,6 +178,32 @@ async function handleLtaBusArrivals(url: URL, env: Env) {
     busStopCode: payload.BusStopCode,
     updatedAt: new Date().toISOString(),
     services: payload.Services,
+  })
+}
+
+async function handleLtaTrainAlerts(env: Env) {
+  const payload = await ltaFetch<LtaTrainAlertsResponse>(
+    'https://datamall2.mytransport.sg/ltaodataservice/TrainServiceAlerts',
+    env,
+  )
+
+  return json({
+    updatedAt: new Date().toISOString(),
+    alerts: payload.value ?? [],
+  })
+}
+
+async function handleLtaStationCrowd(url: URL, env: Env) {
+  const trainLine = url.searchParams.get('trainLine')?.trim() || 'NSL'
+  const requestUrl = new URL('https://datamall2.mytransport.sg/ltaodataservice/PCDRealTime')
+  requestUrl.searchParams.set('TrainLine', trainLine)
+
+  const payload = await ltaFetch<LtaStationCrowdResponse>(requestUrl.toString(), env)
+
+  return json({
+    trainLine,
+    updatedAt: new Date().toISOString(),
+    stations: payload.value ?? [],
   })
 }
 

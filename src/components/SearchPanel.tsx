@@ -1,12 +1,15 @@
 import { CircleAlert, LoaderCircle, MapPin, ShieldCheck } from 'lucide-react'
 import { getSourceLabel } from '../data/sources'
-import type { Place, ProviderSignal } from '../domain/types'
+import type { Place, ProviderSignal, UserMode } from '../domain/types'
+import { ModeSwitcher } from './ModeSwitcher'
 
 interface SearchPanelProps {
   results: Place[]
   selectedPlace?: Place
   signals: ProviderSignal[]
   isLoading: boolean
+  userMode: UserMode
+  onUserModeChange: (mode: UserMode) => void
   onSelectPlace: (placeId: string) => void
 }
 
@@ -15,6 +18,8 @@ export function SearchPanel({
   selectedPlace,
   signals,
   isLoading,
+  userMode,
+  onUserModeChange,
   onSelectPlace,
 }: SearchPanelProps) {
   return (
@@ -29,6 +34,8 @@ export function SearchPanel({
           Alpha
         </span>
       </div>
+
+      <ModeSwitcher userMode={userMode} onModeChange={onUserModeChange} />
 
       <div className="provider-strip" aria-label="Data provider status">
         {signals.map((signal) => (

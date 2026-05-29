@@ -5,6 +5,7 @@ interface TopBarProps {
   baseMapMode: BaseMapMode
   countryFilter: CountryCode | 'ALL'
   query: string
+  searchPlaceholder: string
   onBaseMapChange: (mode: BaseMapMode) => void
   onCountryChange: (country: CountryCode | 'ALL') => void
   onQueryChange: (query: string) => void
@@ -14,6 +15,7 @@ export function TopBar({
   baseMapMode,
   countryFilter,
   query,
+  searchPlaceholder,
   onBaseMapChange,
   onCountryChange,
   onQueryChange,
@@ -32,7 +34,7 @@ export function TopBar({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search address, mall, checkpoint, bus stop"
+          placeholder={searchPlaceholder}
           aria-label="Search places"
         />
       </label>

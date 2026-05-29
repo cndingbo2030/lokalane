@@ -37,6 +37,17 @@ Use OneMap for Singapore addresses, official map rendering, reverse geocoding an
 
 Use LTA for bus arrivals, bus stops, parking availability, traffic incidents, expressway travel time and EV charger feeds. These dynamic feeds should be cached by dataset-specific TTLs to avoid waste and improve latency.
 
+Public transport datasets should be treated differently by freshness:
+
+- Bus arrivals: refresh around the feed update cadence and keep stale-state UI.
+- Train service alerts: cache briefly, but show the timestamp clearly.
+- Station crowd density: show as a guidance signal, not a guarantee.
+- Cross-border public transport: mark as planned/estimated unless backed by an official live feed.
+
+## Malaysia Transit
+
+Malaysia public transport should be integrated through a GTFS/GTFS-Realtime adapter when official feeds are available and licensed for app use. Until then, Malaysia transit records must be labelled as planned, estimated or OSM/community-backed.
+
 ## OpenStreetMap
 
 Use OSM as an MVP regional fallback for Malaysia and non-official coverage. Keep visible attribution and plan for a production tile strategy before high traffic.
