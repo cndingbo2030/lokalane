@@ -74,4 +74,6 @@ Worker routes:
 - [Architecture](docs/architecture.md)
 - [Data governance](docs/data-governance.md)
 - [Monetization](docs/monetization.md)
+- [API application pack](docs/api-application-pack.md)
+- [Store submission pack](docs/store-submission-pack.md)
 - [Roadmap](docs/roadmap.md)
