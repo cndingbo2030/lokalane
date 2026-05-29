@@ -30,6 +30,7 @@ flowchart LR
 3. Store user reports and POI corrections in PostGIS.
 4. Add moderation, confidence scoring and source history before public crowdsourcing.
 5. Use native mobile shells only after the PWA interaction model proves retention.
+6. Keep marketplace listing, moderation, payment and AI services modular so the core map remains fast.
 
 ## Search Pipeline
 

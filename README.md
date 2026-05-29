@@ -78,7 +78,10 @@ Worker routes:
 
 - [Project brief](docs/project-brief.md)
 - [Architecture](docs/architecture.md)
+- [Business architecture](docs/business-architecture.md)
 - [Data governance](docs/data-governance.md)
+- [Local marketplace technical architecture](docs/local-marketplace-technical-architecture.md)
+- [Marketplace UX principles](docs/marketplace-ux-principles.md)
 - [Monetization](docs/monetization.md)
 - [API application pack](docs/api-application-pack.md)
 - [Store submission pack](docs/store-submission-pack.md)

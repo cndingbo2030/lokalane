@@ -35,6 +35,9 @@
 - Sponsored POI admin workflow.
 - Merchant landing and claim process.
 - Frequency caps and ad quality controls.
+- Read-only local marketplace discovery for food, attractions, rentals and second-hand.
+- UGC policy, report flow and moderation queue before public posting.
+- Information-fee pilot on web/PWA before native in-app purchase implementation.
 
 ## Milestone 4: Native App
 
@@ -42,3 +45,12 @@
 - Push notifications for saved commutes.
 - Background location permission strategy.
 - App Store and Google Play compliance review.
+
+## Milestone 5: Local Intent Marketplace
+
+- User accounts and saved listings.
+- Controlled listing submission with manual review.
+- AI-assisted listing cleanup, translation, duplicate detection and risk scoring.
+- Merchant profiles and paid featured listings.
+- Masked contact flow and report/block controls.
+- Marketplace search merged with official map search.

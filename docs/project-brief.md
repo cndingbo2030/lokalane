@@ -28,3 +28,9 @@ The first defensible market is Singapore plus Johor Bahru cross-border movement.
 - Cross-border UX for Woodlands, Tuas and Johor destinations.
 - Community correction workflow focused on local map precision.
 - Merchant monetization that does not degrade driving safety.
+
+## Marketplace Expansion Thesis
+
+The next moat is local intent, not generic classifieds. LokaLane should let users discover food, attractions, rentals, second-hand goods and supply/demand posts only when they are relevant to a place, route, neighbourhood or user mode.
+
+This keeps the app differentiated from ordinary marketplace apps: the map, official data and route context provide trust and intent.

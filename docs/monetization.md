@@ -18,13 +18,22 @@ Revenue must never make the map feel chaotic. The user should feel that LokaLane
 - Pay-per-call, pay-per-route-start or pay-per-offer-save.
 - Merchant ranking must not override safety, distance or official result quality.
 
-## Phase 3: B2B
+## Phase 3: Information Fee
+
+- Featured local posts for eat/play, rental, second-hand and services.
+- Urgent review fee for time-sensitive posts.
+- Verified merchant profile subscription.
+- Lead fee for high-intent categories after quality is proven.
+- Store-billing path for native digital boosts and subscriptions.
+- Web/PWA payment path for early experiments.
+
+## Phase 4: B2B
 
 - Local map widgets for malls, events and property managers.
 - Logistics and field-service routing dashboards.
 - Aggregated, privacy-preserving mobility insights.
 
-## Phase 4: Premium
+## Phase 5: Premium
 
 - No ads.
 - Offline SG/JB maps.
