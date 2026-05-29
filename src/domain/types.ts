@@ -12,6 +12,7 @@ export type PlaceCategory =
   | 'building'
   | 'condo'
   | 'checkpoint'
+  | 'food'
   | 'hdb'
   | 'transport'
   | 'parking'

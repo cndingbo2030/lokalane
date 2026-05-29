@@ -1,13 +1,16 @@
-import { Car, Layers3, MapPinned, Navigation, Search } from 'lucide-react'
-import type { BaseMapMode, CountryCode } from '../domain/types'
+import { Layers3, MapPinned, Navigation, Search } from 'lucide-react'
+import type { BaseMapMode, CountryCode, UserMode } from '../domain/types'
+import { ModeMenu } from './ModeMenu'
 
 interface TopBarProps {
   baseMapMode: BaseMapMode
   countryFilter: CountryCode | 'ALL'
   query: string
   searchPlaceholder: string
+  userMode: UserMode
   onBaseMapChange: (mode: BaseMapMode) => void
   onCountryChange: (country: CountryCode | 'ALL') => void
+  onUserModeChange: (mode: UserMode) => void
   onQueryChange: (query: string) => void
 }
 
@@ -16,8 +19,10 @@ export function TopBar({
   countryFilter,
   query,
   searchPlaceholder,
+  userMode,
   onBaseMapChange,
   onCountryChange,
+  onUserModeChange,
   onQueryChange,
 }: TopBarProps) {
   return (
@@ -69,9 +74,7 @@ export function TopBar({
         >
           <Layers3 size={18} />
         </button>
-        <button type="button" title="Driving mode">
-          <Car size={18} />
-        </button>
+        <ModeMenu userMode={userMode} onModeChange={onUserModeChange} />
       </div>
     </header>
   )

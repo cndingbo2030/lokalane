@@ -46,6 +46,7 @@ function App() {
   const { places: results, signals, isLoading } = useHybridSearch(query, {
     country: countryFilter,
     limit: 7,
+    userMode,
   })
   const activeModeProfile = modeProfiles[userMode]
 
@@ -101,8 +102,10 @@ function App() {
         countryFilter={countryFilter}
         query={query}
         searchPlaceholder={activeModeProfile.searchPlaceholder}
+        userMode={userMode}
         onBaseMapChange={setBaseMapMode}
         onCountryChange={setCountryFilter}
+        onUserModeChange={setUserMode}
         onQueryChange={setQuery}
       />
 
@@ -112,7 +115,7 @@ function App() {
         signals={signals}
         isLoading={isLoading}
         userMode={userMode}
-        onUserModeChange={setUserMode}
+        onQueryChange={setQuery}
         onSelectPlace={handleSelectPlace}
       />
 

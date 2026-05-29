@@ -74,6 +74,10 @@ function inferOneMapCategory(result: Pick<OneMapSearchResult, 'name' | 'address'
     return 'transport'
   }
 
+  if (/hawker|food|restaurant|cafe|coffee|market|satay/.test(value)) {
+    return 'food'
+  }
+
   if (/mall|square|plaza|shopping|centre|center/.test(value)) {
     return 'mall'
   }
@@ -113,6 +117,7 @@ function getOneMapSignal(category: PlaceCategory) {
     building: 'Official OneMap building result',
     condo: 'Official OneMap condo/apartment result',
     checkpoint: 'Official OneMap checkpoint result',
+    food: 'Official OneMap food/place result',
     hdb: 'Official OneMap HDB/block result',
     transport: 'Official OneMap transport result',
     parking: 'Official OneMap parking result',

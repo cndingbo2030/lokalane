@@ -174,6 +174,7 @@ function getCategoryInitial(category: Place['category']) {
     building: 'B',
     condo: 'A',
     checkpoint: 'C',
+    food: 'F',
     hdb: 'H',
     transport: 'T',
     parking: 'P',

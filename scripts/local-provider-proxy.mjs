@@ -166,6 +166,10 @@ function inferCategory(result) {
     return 'transport'
   }
 
+  if (/hawker|food|restaurant|cafe|coffee|market|satay/.test(value)) {
+    return 'food'
+  }
+
   if (/mall|square|plaza|shopping|centre|center/.test(value)) {
     return 'mall'
   }

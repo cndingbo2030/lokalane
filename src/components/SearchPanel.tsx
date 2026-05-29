@@ -2,8 +2,8 @@ import { CircleAlert, LoaderCircle, MapPin, ShieldCheck } from 'lucide-react'
 import { getSourceLabel } from '../data/sources'
 import type { Place, ProviderSignal, UserMode } from '../domain/types'
 import { useProviderHealth } from '../hooks/useProviderHealth'
-import { ModeSwitcher } from './ModeSwitcher'
 import { ProviderStatusCard } from './ProviderStatusCard'
+import { VisitorFocus } from './VisitorFocus'
 
 interface SearchPanelProps {
   results: Place[]
@@ -11,7 +11,7 @@ interface SearchPanelProps {
   signals: ProviderSignal[]
   isLoading: boolean
   userMode: UserMode
-  onUserModeChange: (mode: UserMode) => void
+  onQueryChange: (query: string) => void
   onSelectPlace: (placeId: string) => void
 }
 
@@ -21,7 +21,7 @@ export function SearchPanel({
   signals,
   isLoading,
   userMode,
-  onUserModeChange,
+  onQueryChange,
   onSelectPlace,
 }: SearchPanelProps) {
   const providerHealth = useProviderHealth()
@@ -39,7 +39,7 @@ export function SearchPanel({
         </span>
       </div>
 
-      <ModeSwitcher userMode={userMode} onModeChange={onUserModeChange} />
+      {userMode === 'visitor' ? <VisitorFocus onQueryChange={onQueryChange} /> : null}
       <ProviderStatusCard health={providerHealth} />
 
       <div className="provider-strip" aria-label="Data provider status">
@@ -96,6 +96,7 @@ function formatCategory(category: Place['category']) {
     building: 'Building',
     condo: 'Condo',
     checkpoint: 'Checkpoint',
+    food: 'Food',
     hdb: 'HDB block',
     transport: 'Transport',
     parking: 'Parking',

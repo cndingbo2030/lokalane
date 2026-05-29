@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CountryCode, Place, ProviderSignal } from '../domain/types'
+import type { CountryCode, Place, ProviderSignal, UserMode } from '../domain/types'
 import { hybridSearch } from '../services/hybridSearch'
 import { searchPlaces } from '../services/search'
 
 interface UseHybridSearchOptions {
   country: CountryCode | 'ALL'
   limit?: number
+  userMode?: UserMode
 }
 
 interface UseHybridSearchState {
@@ -21,8 +22,8 @@ export function useHybridSearch(query: string, options: UseHybridSearchOptions) 
   const limit = options.limit ?? 8
   const key = `${query}|${options.country}|${limit}`
   const immediatePlaces = useMemo(
-    () => searchPlaces(query, { country: options.country, limit }),
-    [options.country, limit, query],
+    () => searchPlaces(query, { country: options.country, intent: options.userMode, limit }),
+    [options.country, limit, options.userMode, query],
   )
   const immediateSignals = useMemo<ProviderSignal[]>(
     () => [
@@ -56,6 +57,7 @@ export function useHybridSearch(query: string, options: UseHybridSearchOptions) 
 
       hybridSearch(query, {
         country: options.country,
+        userMode: options.userMode,
         limit,
       })
         .then((result) => {
@@ -92,7 +94,7 @@ export function useHybridSearch(query: string, options: UseHybridSearchOptions) 
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [immediatePlaces, immediateSignals, key, limit, options.country, query])
+  }, [immediatePlaces, immediateSignals, key, limit, options.country, options.userMode, query])
 
   if (state.key !== key) {
     return {

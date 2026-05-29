@@ -1,10 +1,11 @@
-import type { CountryCode, Place, ProviderSignal } from '../domain/types'
+import type { CountryCode, Place, ProviderSignal, UserMode } from '../domain/types'
 import { hasOneMapProxy, oneMapResultToPlace, searchOneMapProxy } from './onemap'
 import { searchPlaces } from './search'
 
 export interface HybridSearchOptions {
   country: CountryCode | 'ALL'
   limit?: number
+  userMode?: UserMode
   fetcher?: typeof fetch
 }
 
@@ -20,6 +21,7 @@ export async function hybridSearch(
   const limit = options.limit ?? 8
   const localPlaces = searchPlaces(query, {
     country: options.country,
+    intent: options.userMode,
     limit,
   })
 
