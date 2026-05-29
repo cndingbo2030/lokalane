@@ -1,0 +1,17 @@
+{
+  "name": "LokaLane",
+  "short_name": "LokaLane",
+  "description": "A Singapore-first, Malaysia-ready local navigation map.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f4",
+  "theme_color": "#17664f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

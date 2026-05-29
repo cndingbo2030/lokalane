@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LokaLane">
+  <rect width="64" height="64" rx="14" fill="#17664f"/>
+  <path d="M33 10 17 34h12l-3 20 22-28H35l-2-16Z" fill="#f1c94a"/>
+  <path d="M20 42c10-4 22-4 30 2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+</svg>
