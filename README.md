@@ -57,7 +57,7 @@ The app is designed to call a server-side proxy at `VITE_LOKALANE_API_BASE`. Do 
 cp .env.example .env.local
 ```
 
-Set `ONEMAP_EMAIL`, `ONEMAP_PASSWORD`, and `LTA_ACCOUNT_KEY` only in the server/worker runtime.
+Set `ONEMAP_EMAIL`, `ONEMAP_PASSWORD`, and `LTA_ACCOUNT_KEY` only in the server/worker runtime. For short local verification you can also set `ONEMAP_ACCESS_TOKEN` plus `ONEMAP_TOKEN_EXPIRES_AT`, but do not commit either value and do not ship them to the client.
 
 Worker routes:
 

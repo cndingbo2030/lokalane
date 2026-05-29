@@ -1,6 +1,8 @@
 interface Env {
-  ONEMAP_EMAIL: string
-  ONEMAP_PASSWORD: string
+  ONEMAP_EMAIL?: string
+  ONEMAP_PASSWORD?: string
+  ONEMAP_ACCESS_TOKEN?: string
+  ONEMAP_TOKEN_EXPIRES_AT?: string
   LTA_ACCOUNT_KEY?: string
 }
 
@@ -71,7 +73,9 @@ export default {
         return json({
           ok: true,
           providers: {
-            onemap: Boolean(env.ONEMAP_EMAIL && env.ONEMAP_PASSWORD),
+            onemap: hasOneMapAuth(env),
+            onemapMode: env.ONEMAP_ACCESS_TOKEN ? 'access-token' : 'credential-login',
+            onemapTokenExpiresAt: tokenExpiryIso(env.ONEMAP_TOKEN_EXPIRES_AT),
             lta: Boolean(env.LTA_ACCOUNT_KEY),
           },
         })
@@ -228,8 +232,24 @@ async function ltaFetch<T>(url: string, env: Env) {
 
 async function getOneMapToken(env: Env) {
   const now = Date.now()
+
+  if (env.ONEMAP_ACCESS_TOKEN) {
+    const staticTokenExpiresAt = tokenExpiryMs(env.ONEMAP_TOKEN_EXPIRES_AT)
+    if (!staticTokenExpiresAt || staticTokenExpiresAt - now > 300_000) {
+      return env.ONEMAP_ACCESS_TOKEN
+    }
+
+    if (!env.ONEMAP_EMAIL || !env.ONEMAP_PASSWORD) {
+      throw new Error('Configured OneMap access token has expired')
+    }
+  }
+
   if (cachedToken && cachedTokenExpiresAt - now > 300_000) {
     return cachedToken
+  }
+
+  if (!env.ONEMAP_EMAIL || !env.ONEMAP_PASSWORD) {
+    throw new Error('OneMap credentials are not configured')
   }
 
   const response = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
@@ -251,6 +271,33 @@ async function getOneMapToken(env: Env) {
   cachedToken = payload.access_token
   cachedTokenExpiresAt = Number(payload.expiry_timestamp) * 1000
   return cachedToken
+}
+
+function hasOneMapAuth(env: Env) {
+  if (env.ONEMAP_ACCESS_TOKEN) {
+    const expiresAt = tokenExpiryMs(env.ONEMAP_TOKEN_EXPIRES_AT)
+    return !expiresAt || expiresAt - Date.now() > 300_000
+  }
+
+  return Boolean(env.ONEMAP_EMAIL && env.ONEMAP_PASSWORD)
+}
+
+function tokenExpiryMs(value?: string) {
+  if (!value) {
+    return 0
+  }
+
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0
+  }
+
+  return parsed > 10_000_000_000 ? parsed : parsed * 1000
+}
+
+function tokenExpiryIso(value?: string) {
+  const expiresAt = tokenExpiryMs(value)
+  return expiresAt ? new Date(expiresAt).toISOString() : null
 }
 
 function json(payload: unknown, status = 200) {

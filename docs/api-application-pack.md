@@ -60,6 +60,8 @@ Production secrets should be created only in the deployment environment:
 
 - `ONEMAP_EMAIL`
 - `ONEMAP_PASSWORD`
+- `ONEMAP_ACCESS_TOKEN` for short local verification only
+- `ONEMAP_TOKEN_EXPIRES_AT` as the token Unix expiry timestamp
 - `LTA_ACCOUNT_KEY`
 
 Never add these values to `.env.local` in Git, screenshots, issue descriptions, or client-side Vite variables.
