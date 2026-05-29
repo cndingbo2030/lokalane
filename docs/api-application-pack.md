@@ -42,9 +42,9 @@ Official authentication page: https://www.onemap.gov.sg/apidocs/authentication
 
 ### Proposed Use
 
-LokaLane will use OneMap APIs to provide Singapore address search, official Singapore map context, geocoding, and accurate location discovery for a free local navigation app. The app serves visitors, local commuters, public transport users, drivers, and Singapore-Malaysia cross-border travellers.
+OneMap currently enforces a 300-character limit on this field. Use this short version:
 
-OneMap credentials will be stored server-side only. The client will call a controlled API gateway that caches eligible responses, applies rate limiting, keeps attribution visible, and prevents API secrets from being shipped in the public app bundle.
+Personal research for LokaLane, a free SG local map prototype for mobile/web. Evaluating OneMap for address search, official map context, geocoding and place discovery. Credentials stay server-side.
 
 ### Required Before Submit
 
