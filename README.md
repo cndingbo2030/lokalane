@@ -41,6 +41,12 @@ npm install
 npm run dev
 ```
 
+Run the local provider proxy when testing official OneMap search:
+
+```bash
+npm run dev:proxy
+```
+
 Run checks:
 
 ```bash

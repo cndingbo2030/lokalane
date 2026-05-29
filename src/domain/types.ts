@@ -9,7 +9,10 @@ export type AppView = 'map' | 'commute' | 'saved' | 'report'
 export type UserMode = 'visitor' | 'local' | 'driver' | 'transit'
 
 export type PlaceCategory =
+  | 'building'
+  | 'condo'
   | 'checkpoint'
+  | 'hdb'
   | 'transport'
   | 'parking'
   | 'mall'

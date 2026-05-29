@@ -51,8 +51,8 @@ function App() {
 
   const selectedPlace =
     results.find((place) => place.id === selectedPlaceId) ??
-    getPlaceById(selectedPlaceId) ??
     results[0] ??
+    getPlaceById(selectedPlaceId) ??
     places[0]
 
   const savedPlaces = savedPlaceIds

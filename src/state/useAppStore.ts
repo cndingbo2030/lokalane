@@ -49,7 +49,7 @@ export const useAppStore = create<AppState>((set) => ({
   isNavigating: false,
   mobilityMode: 'drive',
   qualityReports: [],
-  query: '',
+  query: getInitialQuery(),
   savedPlaceIds: ['woodlands-checkpoint', 'jb-city-square'],
   selectedPlaceId: 'woodlands-checkpoint',
   userMode: 'visitor',
@@ -119,3 +119,11 @@ export const useAppStore = create<AppState>((set) => ({
       }
     }),
 }))
+
+function getInitialQuery() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return new URLSearchParams(window.location.search).get('q')?.trim() ?? ''
+}

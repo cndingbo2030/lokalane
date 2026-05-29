@@ -53,23 +53,30 @@ export function SearchPanel({
       </div>
 
       <div className="result-list">
-        {results.map((place) => (
-          <button
-            key={place.id}
-            type="button"
-            className={selectedPlace?.id === place.id ? 'result-item active' : 'result-item'}
-            onClick={() => onSelectPlace(place.id)}
-          >
-            <span className="result-icon">
-              <MapPin size={18} />
-            </span>
-            <span className="result-copy">
-              <strong>{place.name}</strong>
-              <span>{place.area} · {place.address}</span>
-            </span>
-            <span className="confidence">{Math.round(place.confidence * 100)}%</span>
-          </button>
-        ))}
+        {results.length > 0 ? (
+          results.map((place) => (
+            <button
+              key={place.id}
+              type="button"
+              className={selectedPlace?.id === place.id ? 'result-item active' : 'result-item'}
+              onClick={() => onSelectPlace(place.id)}
+            >
+              <span className="result-icon">
+                <MapPin size={18} />
+              </span>
+              <span className="result-copy">
+                <strong>{place.name}</strong>
+                <span>{formatCategory(place.category)} · {place.address}</span>
+              </span>
+              <span className="confidence">{Math.round(place.confidence * 100)}%</span>
+            </button>
+          ))
+        ) : (
+          <div className="empty-state compact">
+            <strong>No local seed match</strong>
+            <span>Connect OneMap gateway to search every Singapore HDB block, condo and building.</span>
+          </div>
+        )}
       </div>
 
       <div className="source-row">
@@ -82,4 +89,21 @@ export function SearchPanel({
       </div>
     </aside>
   )
+}
+
+function formatCategory(category: Place['category']) {
+  const labels: Record<Place['category'], string> = {
+    building: 'Building',
+    condo: 'Condo',
+    checkpoint: 'Checkpoint',
+    hdb: 'HDB block',
+    transport: 'Transport',
+    parking: 'Parking',
+    mall: 'Mall',
+    landmark: 'Landmark',
+    medical: 'Medical',
+    ev: 'EV',
+  }
+
+  return labels[category]
 }

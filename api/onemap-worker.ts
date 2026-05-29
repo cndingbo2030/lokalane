@@ -138,13 +138,69 @@ async function handleOneMapSearch(url: URL, env: Env) {
       id: `${result.POSTAL || result.SEARCHVAL}-${result.X}-${result.Y}`,
       name: result.BUILDING && result.BUILDING !== 'NIL' ? result.BUILDING : result.SEARCHVAL,
       address: result.ADDRESS,
+      category: inferOneMapCategory(result),
       coordinates: {
         lat: Number(result.LATITUDE),
         lng: Number(result.LONGITUDE || result.LONGTITUDE),
       },
-      confidence: 0.96,
+      confidence: scoreOneMapResult(result, query),
+      tags: [
+        result.POSTAL ? `postal-${result.POSTAL}` : '',
+        normalizeTag(result.ROAD_NAME),
+        inferOneMapCategory(result),
+      ].filter(Boolean),
     })),
   })
+}
+
+function scoreOneMapResult(result: OneMapRawSearchResult, query: string) {
+  const normalizedQuery = query.replace(/\s+/g, '').toLowerCase()
+  const normalizedAddress = result.ADDRESS.replace(/\s+/g, '').toLowerCase()
+  const normalizedSearchValue = result.SEARCHVAL.replace(/\s+/g, '').toLowerCase()
+
+  if (result.POSTAL === normalizedQuery || normalizedSearchValue === normalizedQuery) {
+    return 0.99
+  }
+
+  if (normalizedAddress.includes(normalizedQuery) || normalizedSearchValue.includes(normalizedQuery)) {
+    return 0.97
+  }
+
+  return 0.94
+}
+
+function inferOneMapCategory(result: OneMapRawSearchResult) {
+  const value = `${result.SEARCHVAL} ${result.BUILDING} ${result.ADDRESS}`.toLowerCase()
+
+  if (/\bblk\b|hdb|punggol|ang mo kio|tampines|yishun|woodlands|sengkang|jurong|bedok/.test(value)) {
+    return 'hdb'
+  }
+
+  if (/\bcondo\b|condominium|residences|residence|suite|suites|apartment|apartments/.test(value)) {
+    return 'condo'
+  }
+
+  if (/mrt|lrt|bus interchange|terminal|station/.test(value)) {
+    return 'transport'
+  }
+
+  if (/mall|square|plaza|shopping|centre|center/.test(value)) {
+    return 'mall'
+  }
+
+  if (/hospital|clinic|medical/.test(value)) {
+    return 'medical'
+  }
+
+  if (/car park|carpark|parking/.test(value)) {
+    return 'parking'
+  }
+
+  return 'building'
+}
+
+function normalizeTag(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '-')
 }
 
 async function handleLtaCarParks(env: Env) {

@@ -171,7 +171,10 @@ function createPlaceIcon(place: Place, selected: boolean) {
 
 function getCategoryInitial(category: Place['category']) {
   const labels: Record<Place['category'], string> = {
+    building: 'B',
+    condo: 'A',
     checkpoint: 'C',
+    hdb: 'H',
     transport: 'T',
     parking: 'P',
     mall: 'M',
