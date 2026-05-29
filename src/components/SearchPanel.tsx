@@ -1,7 +1,9 @@
 import { CircleAlert, LoaderCircle, MapPin, ShieldCheck } from 'lucide-react'
 import { getSourceLabel } from '../data/sources'
 import type { Place, ProviderSignal, UserMode } from '../domain/types'
+import { useProviderHealth } from '../hooks/useProviderHealth'
 import { ModeSwitcher } from './ModeSwitcher'
+import { ProviderStatusCard } from './ProviderStatusCard'
 
 interface SearchPanelProps {
   results: Place[]
@@ -22,6 +24,8 @@ export function SearchPanel({
   onUserModeChange,
   onSelectPlace,
 }: SearchPanelProps) {
+  const providerHealth = useProviderHealth()
+
   return (
     <aside className="search-panel" aria-label="Search results">
       <div className="panel-heading">
@@ -36,6 +40,7 @@ export function SearchPanel({
       </div>
 
       <ModeSwitcher userMode={userMode} onModeChange={onUserModeChange} />
+      <ProviderStatusCard health={providerHealth} />
 
       <div className="provider-strip" aria-label="Data provider status">
         {signals.map((signal) => (
