@@ -10,6 +10,7 @@ interface SearchPanelProps {
   selectedPlace?: Place
   signals: ProviderSignal[]
   isLoading: boolean
+  query: string
   userMode: UserMode
   onQueryChange: (query: string) => void
   onSelectPlace: (placeId: string) => void
@@ -20,14 +21,19 @@ export function SearchPanel({
   selectedPlace,
   signals,
   isLoading,
+  query,
   userMode,
   onQueryChange,
   onSelectPlace,
 }: SearchPanelProps) {
   const providerHealth = useProviderHealth()
+  const hasQuery = query.trim().length > 0
 
   return (
-    <aside className="search-panel" aria-label="Search results">
+    <aside
+      className={hasQuery ? 'search-panel has-query' : 'search-panel is-discovery'}
+      aria-label="Search results"
+    >
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Local precision layer</p>

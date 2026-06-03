@@ -114,6 +114,7 @@ function App() {
         selectedPlace={selectedPlace}
         signals={signals}
         isLoading={isLoading}
+        query={query}
         userMode={userMode}
         onQueryChange={setQuery}
         onSelectPlace={handleSelectPlace}

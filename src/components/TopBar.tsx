@@ -63,6 +63,7 @@ export function TopBar({
           className={baseMapMode === 'regional' ? 'active' : ''}
           onClick={() => onBaseMapChange('regional')}
           title="Regional map"
+          aria-label="Regional map"
         >
           <MapPinned size={18} />
         </button>
@@ -71,6 +72,7 @@ export function TopBar({
           className={baseMapMode === 'sg-official' ? 'active' : ''}
           onClick={() => onBaseMapChange('sg-official')}
           title="OneMap Singapore"
+          aria-label="OneMap Singapore"
         >
           <Layers3 size={18} />
         </button>

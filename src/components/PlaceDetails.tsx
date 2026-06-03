@@ -37,7 +37,7 @@ export function PlaceDetails({
       <div className="metric-strip">
         <span>
           <Gauge size={16} />
-          {confidence}% confidence
+          {confidence}% match
         </span>
         <span>
           <MapPinned size={16} />
@@ -52,7 +52,7 @@ export function PlaceDetails({
       <div className="action-row">
         <button type="button" className="primary-action" onClick={onStartNavigation}>
           <Navigation2 size={17} />
-          {isNavigating ? 'Reroute' : 'Start'}
+          {isNavigating ? 'Reroute' : 'Go'}
         </button>
         <button type="button" onClick={onToggleSaved}>
           {isSaved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
@@ -60,11 +60,11 @@ export function PlaceDetails({
         </button>
         <a href={mapsUrl} target="_blank" rel="noreferrer">
           <Navigation2 size={17} />
-          External
+          Maps
         </a>
         <a href={sourceUrl} target="_blank" rel="noreferrer">
           <ExternalLink size={17} />
-          Data source
+          Source
         </a>
       </div>
     </section>

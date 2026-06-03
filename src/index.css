@@ -1819,6 +1819,15 @@ h2 {
 }
 
 @media (max-width: 640px) {
+  .top-bar {
+    top: 8px;
+    width: calc(100vw - 20px);
+    min-height: 0;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 8px;
+  }
+
   .search-panel {
     right: 10px;
     left: 10px;
@@ -1830,12 +1839,34 @@ h2 {
     white-space: normal;
   }
 
-  .top-bar {
-    width: calc(100vw - 20px);
-  }
-
   .brand-name {
     font-size: 0.96rem;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .search-shell {
+    height: 40px;
+    padding: 0 11px;
+  }
+
+  .segmented-controls,
+  .icon-toggle-group {
+    height: 38px;
+  }
+
+  .segmented-controls button,
+  .icon-toggle-group button,
+  .mode-menu-trigger {
+    height: 30px;
+  }
+
+  .icon-toggle-group button,
+  .mode-menu-trigger {
+    width: 32px;
   }
 
   .top-bar {
@@ -1867,12 +1898,108 @@ h2 {
   }
 
   .search-panel {
-    top: 188px;
-    max-height: 20svh;
+    top: 166px;
+    max-height: 156px;
+    padding: 11px;
+    overscroll-behavior: contain;
+  }
+
+  .search-panel.is-discovery {
+    max-height: none;
+  }
+
+  .search-panel.is-discovery .result-list {
+    display: none;
+  }
+
+  .search-panel.has-query .visitor-focus {
+    display: none;
+  }
+
+  .search-panel .panel-heading {
+    align-items: center;
+    margin-bottom: 9px;
+  }
+
+  .search-panel .eyebrow {
+    display: none;
+  }
+
+  .search-panel h1 {
+    max-width: 240px;
+    font-size: 1rem;
+    line-height: 1.14;
+  }
+
+  .search-panel .provider-health,
+  .search-panel .provider-strip,
+  .search-panel .source-row {
+    display: none;
+  }
+
+  .visitor-focus {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin: 0 0 8px;
+  }
+
+  .result-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .visitor-focus button {
+    min-width: 0;
+    min-height: 38px;
+  }
+
+  .result-list {
+    display: grid;
+    grid-auto-columns: minmax(238px, 82%);
+    grid-auto-flow: column;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .result-item {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    min-height: 68px;
+    padding: 8px;
+  }
+
+  .search-panel.has-query .result-copy strong {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 0.82rem;
+    line-height: 1.18;
+    text-overflow: ellipsis;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .search-panel.has-query .result-copy span {
+    overflow: hidden;
+    font-size: 0.7rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .confidence {
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 0.68rem;
   }
 
   .navigation-banner {
-    top: 188px;
+    top: 166px;
     grid-template-columns: 38px minmax(0, 1fr) 34px 34px;
   }
 
@@ -1927,6 +2054,44 @@ h2 {
     white-space: nowrap;
   }
 
+  .bottom-sheet {
+    max-height: 42svh;
+    padding: 12px;
+  }
+
+  .sheet-tabs {
+    height: 42px;
+  }
+
+  .sheet-tabs button {
+    height: 32px;
+  }
+
+  .place-details {
+    gap: 10px;
+  }
+
+  .metric-strip span,
+  .action-row a,
+  .action-row button {
+    min-height: 40px;
+  }
+
+  .action-row a,
+  .action-row button {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+  }
+
+  .place-badge-strip {
+    gap: 6px;
+  }
+
+  .place-badge {
+    min-height: 31px;
+    font-size: 0.7rem;
+  }
+
   .community-hero {
     grid-template-columns: 42px minmax(0, 1fr);
   }
@@ -1947,5 +2112,30 @@ h2 {
 
   .community-digest-footer button {
     width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .top-bar {
+    width: calc(100vw - 16px);
+  }
+
+  .search-panel,
+  .bottom-sheet,
+  .bottom-nav {
+    right: 8px;
+    left: 8px;
+  }
+
+  .search-panel {
+    max-height: 148px;
+  }
+
+  .bottom-nav button {
+    font-size: 0.58rem;
+  }
+
+  .result-list {
+    grid-auto-columns: minmax(220px, 84%);
   }
 }
