@@ -17,9 +17,11 @@ describe('BottomNav', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Commute' }))
+    await user.click(screen.getByRole('button', { name: 'Nearby' }))
     await user.click(screen.getByRole('button', { name: 'Report' }))
 
     expect(onViewChange).toHaveBeenNthCalledWith(1, 'commute')
-    expect(onViewChange).toHaveBeenNthCalledWith(2, 'report')
+    expect(onViewChange).toHaveBeenNthCalledWith(2, 'community')
+    expect(onViewChange).toHaveBeenNthCalledWith(3, 'report')
   })
 })

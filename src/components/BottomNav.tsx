@@ -1,4 +1,4 @@
-import { Bookmark, Map, MessageSquareWarning, TimerReset } from 'lucide-react'
+import { Bookmark, Map, MessageCircle, MessageSquareWarning, TimerReset } from 'lucide-react'
 import type { AppView } from '../domain/types'
 
 interface BottomNavProps {
@@ -10,6 +10,7 @@ interface BottomNavProps {
 const navItems: Array<{ view: AppView; label: string; icon: typeof Map }> = [
   { view: 'map', label: 'Map', icon: Map },
   { view: 'commute', label: 'Commute', icon: TimerReset },
+  { view: 'community', label: 'Nearby', icon: MessageCircle },
   { view: 'saved', label: 'Saved', icon: Bookmark },
   { view: 'report', label: 'Report', icon: MessageSquareWarning },
 ]

@@ -10,6 +10,8 @@ import type {
   UserMode,
 } from '../domain/types'
 import { CommutePanel } from './CommutePanel'
+import { CommunityDigest } from './CommunityDigest'
+import { CommunityPanel } from './CommunityPanel'
 import { ModeSummaryPanel } from './ModeSummaryPanel'
 import { PlaceDetails } from './PlaceDetails'
 import { PublicTransportPanel } from './PublicTransportPanel'
@@ -30,11 +32,13 @@ interface BottomSheetProps {
   userMode: UserMode
   onIncidentReport: (report: Omit<IncidentReport, 'id' | 'createdAt'>) => void
   onMobilityModeChange: (mode: MobilityMode) => void
+  onQueryChange: (query: string) => void
   onRouteSelect: (routeId: string) => void
   onSelectPlace: (placeId: string) => void
   onStartNavigation: () => void
   onQualityReport: (report: Omit<QualityReport, 'createdAt'>) => void
   onToggleSavedPlace: (placeId: string) => void
+  onViewChange: (view: AppView) => void
 }
 
 export function BottomSheet({
@@ -50,11 +54,13 @@ export function BottomSheet({
   userMode,
   onIncidentReport,
   onMobilityModeChange,
+  onQueryChange,
   onRouteSelect,
   onSelectPlace,
   onStartNavigation,
   onQualityReport,
   onToggleSavedPlace,
+  onViewChange,
 }: BottomSheetProps) {
   if (activeView === 'commute') {
     return (
@@ -80,6 +86,17 @@ export function BottomSheet({
           savedPlaces={savedPlaces}
           onRemove={onToggleSavedPlace}
           onSelect={onSelectPlace}
+        />
+      </aside>
+    )
+  }
+
+  if (activeView === 'community') {
+    return (
+      <aside className="bottom-sheet" aria-label="Community intelligence">
+        <CommunityPanel
+          selectedPlace={selectedPlace}
+          onQueryChange={onQueryChange}
         />
       </aside>
     )
@@ -128,6 +145,14 @@ export function BottomSheet({
           }
         }}
       />
+
+      {isNavigating ? null : (
+        <CommunityDigest
+          place={selectedPlace}
+          onQueryChange={onQueryChange}
+          onViewChange={onViewChange}
+        />
+      )}
 
       {userMode === 'visitor' || userMode === 'transit' ? (
         <PublicTransportPanel

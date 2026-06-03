@@ -138,11 +138,13 @@ function App() {
         userMode={userMode}
         onIncidentReport={addIncidentReport}
         onMobilityModeChange={setMobilityMode}
+        onQueryChange={setQuery}
         onRouteSelect={setActiveRouteId}
         onSelectPlace={handleSelectPlace}
         onStartNavigation={handleStartNavigation}
         onQualityReport={addQualityReport}
         onToggleSavedPlace={toggleSavedPlace}
+        onViewChange={setActiveView}
       />
 
       <BottomNav

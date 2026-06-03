@@ -31,7 +31,7 @@ export function SearchPanel({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Local precision layer</p>
-          <h1>Singapore-first, Malaysia-ready map</h1>
+          <h1>Find places, routes and local signals</h1>
         </div>
         <span className={isLoading ? 'live-chip loading' : 'live-chip'}>
           {isLoading ? <LoaderCircle size={13} /> : null}

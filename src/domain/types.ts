@@ -4,7 +4,7 @@ export type BaseMapMode = 'regional' | 'sg-official'
 
 export type MobilityMode = 'drive' | 'transit' | 'walk'
 
-export type AppView = 'map' | 'commute' | 'saved' | 'report'
+export type AppView = 'map' | 'commute' | 'community' | 'saved' | 'report'
 
 export type UserMode = 'visitor' | 'local' | 'driver' | 'transit'
 
@@ -185,4 +185,46 @@ export interface QualityReport {
   reason: 'wrong-location' | 'closed' | 'missing-detail' | 'duplicate' | 'other'
   note: string
   createdAt: string
+}
+
+export type CommunityPostCategory =
+  | 'official'
+  | 'food'
+  | 'rental'
+  | 'second-hand'
+  | 'services'
+  | 'transport'
+  | 'visitor'
+
+export type CommunityPostStatus = 'auto-published' | 'human-reviewed' | 'needs-review'
+
+export interface CommunityPost {
+  id: string
+  agentId: string
+  title: string
+  summary: string
+  category: CommunityPostCategory
+  sourceLabel: string
+  status: CommunityPostStatus
+  confidence: number
+  updatedAt: string
+  query?: string
+}
+
+export interface CommunityAgent {
+  id: string
+  area: string
+  title: string
+  subtitle: string
+  placeIds: string[]
+  focus: string[]
+  healthScore: number
+  updatedAt: string
+  quietHoursNote: string
+  guardrails: string[]
+  sourcePolicy: string[]
+  convenienceActions: Array<{
+    label: string
+    query: string
+  }>
 }

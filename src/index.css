@@ -702,7 +702,7 @@ h2 {
   bottom: 18px;
   z-index: 18;
   display: grid;
-  grid-template-columns: repeat(4, minmax(70px, 1fr));
+  grid-template-columns: repeat(5, minmax(58px, 1fr));
   gap: 6px;
   width: min(460px, calc(100vw - 36px));
   padding: 8px;
@@ -903,6 +903,7 @@ h2 {
 }
 
 .commute-panel,
+.community-panel,
 .saved-panel,
 .report-panel,
 .transit-panel {
@@ -941,6 +942,294 @@ h2 {
   background: #ffffff;
   font-size: 0.72rem;
   font-weight: 820;
+}
+
+.community-digest,
+.trust-gate,
+.action-shelf {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #cfe1db;
+  border-radius: 8px;
+  background: #f7fbf8;
+}
+
+.community-digest-heading,
+.community-hero {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.community-digest-heading div,
+.community-hero div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.community-agent-icon {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--green);
+  background: #e1f0e8;
+}
+
+.community-agent-icon.large {
+  width: 42px;
+  height: 42px;
+  color: #ffffff;
+  background: var(--green);
+}
+
+.community-digest-heading strong,
+.community-hero h2 {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-hero p:last-child,
+.community-digest-post small,
+.brief-copy small,
+.brief-copy em,
+.trust-gate article span,
+.agent-switcher small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.32;
+  text-overflow: ellipsis;
+}
+
+.trust-chip,
+.trust-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  color: var(--green-strong);
+  background: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.trust-score {
+  border: 1px solid #cfe1db;
+}
+
+.community-digest-post,
+.brief-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: inherit;
+  background: #ffffff;
+  text-align: left;
+}
+
+.community-digest-post {
+  min-height: 62px;
+  padding: 10px;
+}
+
+.community-digest-post span,
+.brief-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.community-digest-post strong,
+.brief-copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.22;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-digest-footer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.community-digest-footer span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-digest-footer button,
+.action-shelf button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cfe1db;
+  border-radius: 8px;
+  color: var(--green-strong);
+  background: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.community-digest-footer button {
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.community-hero {
+  padding: 12px;
+  border: 1px solid rgba(23, 102, 79, 0.2);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f7fbf8, #ffffff);
+}
+
+.community-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.community-focus-grid span {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--green-strong);
+  background: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 820;
+}
+
+.community-focus-grid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trust-gate-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.trust-gate article {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.trust-gate article svg {
+  grid-row: span 2;
+  color: var(--green);
+}
+
+.trust-gate article strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brief-list {
+  display: grid;
+  gap: 8px;
+}
+
+.brief-card {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 82px;
+  padding: 10px;
+}
+
+.brief-status {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--green);
+  background: #e1f0e8;
+}
+
+.brief-status.needs-review {
+  color: #8a5d13;
+  background: #fff3cf;
+}
+
+.brief-status.auto-published {
+  color: var(--blue);
+  background: #e9f1fb;
+}
+
+.brief-copy em {
+  font-style: normal;
+  font-weight: 720;
+}
+
+.action-shelf > div:last-child,
+.agent-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.action-shelf button {
+  padding: 0 10px;
+}
+
+.agent-switcher button {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 128px;
+  gap: 2px;
+  min-height: 52px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: inherit;
+  background: #ffffff;
+  text-align: left;
+}
+
+.agent-switcher span {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .checkpoint-grid {
@@ -1494,7 +1783,47 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .bottom-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .bottom-nav button {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 52px;
+    font-size: 0.62rem;
+    line-height: 1.05;
+  }
+
   .bottom-nav span {
-    display: none;
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .community-hero {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .community-hero .trust-score {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .community-focus-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .community-digest-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .community-digest-footer button {
+    width: 100%;
   }
 }
