@@ -1671,7 +1671,9 @@ h2 {
   place-items: center;
   border-radius: 50%;
   border: 3px solid #ffffff;
-  box-shadow: 0 8px 22px rgba(18, 28, 22, 0.28);
+  box-shadow:
+    0 8px 22px rgba(18, 28, 22, 0.28),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.12);
 }
 
 .place-marker span {
@@ -1685,6 +1687,17 @@ h2 {
   font-weight: 900;
 }
 
+.place-marker::after {
+  position: absolute;
+  top: 5px;
+  left: 9px;
+  width: 6px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  content: '';
+}
+
 .marker-sg span {
   background: var(--green);
 }
@@ -1694,7 +1707,8 @@ h2 {
 }
 
 .marker-selected {
-  outline: 4px solid rgba(241, 201, 74, 0.72);
+  outline: 5px solid rgba(241, 201, 74, 0.82);
+  transform: scale(1.12);
 }
 
 .layer-marker {
@@ -2450,5 +2464,156 @@ h2 {
   .bottom-sheet.view-map .action-row a,
   .bottom-sheet.view-map .action-row button {
     font-size: 0.68rem;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 920px) {
+  .top-bar {
+    right: 12px;
+    left: 12px;
+    width: calc(100vw - 24px);
+    transform: none;
+  }
+
+  .search-panel {
+    top: 124px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: 154px;
+    padding: 10px;
+    overflow: hidden;
+  }
+
+  .search-panel.has-query {
+    max-height: 112px;
+  }
+
+  .search-panel.has-query .panel-heading,
+  .search-panel.has-query .provider-health,
+  .search-panel.has-query .provider-strip,
+  .search-panel.has-query .source-row,
+  .search-panel.has-query .visitor-focus {
+    display: none;
+  }
+
+  .search-panel.is-discovery {
+    right: auto;
+    width: min(410px, calc(100vw - 24px));
+    max-height: 168px;
+  }
+
+  .search-panel.is-discovery .provider-health,
+  .search-panel.is-discovery .provider-strip,
+  .search-panel.is-discovery .source-row,
+  .search-panel.is-discovery .result-list {
+    display: none;
+  }
+
+  .result-list {
+    display: grid;
+    grid-auto-columns: minmax(288px, 48%);
+    grid-auto-flow: column;
+    gap: 9px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .layer-dock {
+    top: 210px;
+    right: 14px;
+  }
+
+  .layer-dock button {
+    width: 52px;
+    min-height: 52px;
+    border-radius: 50%;
+    color: #ffffff;
+    background: rgba(13, 20, 18, 0.88);
+  }
+
+  .layer-dock button.active {
+    background: var(--green);
+  }
+
+  .bottom-sheet {
+    right: 12px;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    left: 12px;
+    width: calc(100vw - 24px);
+    max-height: 44dvh;
+    padding: 12px;
+  }
+
+  .bottom-sheet.view-map {
+    max-height: min(34dvh, 268px);
+    overflow: hidden;
+  }
+
+  .sheet-handle {
+    display: block;
+  }
+
+  .bottom-sheet.view-map .community-digest,
+  .bottom-sheet.view-map .transit-panel,
+  .bottom-sheet.view-map .quality-panel,
+  .bottom-sheet.view-map .route-stack,
+  .bottom-sheet.view-map .ad-slot {
+    display: none;
+  }
+
+  .bottom-sheet.view-map .place-details {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .bottom-sheet.view-map .place-details h2 {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 1.04rem;
+    line-height: 1.16;
+    text-overflow: ellipsis;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .bottom-sheet.view-map .place-badge-strip,
+  .bottom-sheet.view-map .signal-line {
+    display: none;
+  }
+
+  .bottom-sheet.view-map .action-row {
+    grid-column: 1;
+    grid-row: auto;
+    display: grid;
+    grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .bottom-sheet.view-map .action-row a,
+  .bottom-sheet.view-map .action-row button {
+    min-height: 40px;
+    justify-content: center;
+    padding: 0 8px;
+    font-size: 0.76rem;
+  }
+
+  .bottom-nav {
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    left: 12px;
+    width: calc(100vw - 24px);
+    min-height: 62px;
+  }
+
+  .bottom-nav button {
+    flex-direction: column;
+    gap: 3px;
+    min-height: 48px;
+    font-size: 0.68rem;
+  }
+
+  .leaflet-control-zoom {
+    display: none;
   }
 }
