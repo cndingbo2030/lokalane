@@ -16,7 +16,7 @@ describe('BottomNav', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'Commute' }))
+    await user.click(screen.getByRole('button', { name: 'Route' }))
     await user.click(screen.getByRole('button', { name: 'Nearby' }))
     await user.click(screen.getByRole('button', { name: 'Report' }))
 

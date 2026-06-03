@@ -15,6 +15,11 @@ describe('searchPlaces', () => {
     expect(results.map((place) => place.id)).toContain('woodlands-checkpoint')
   })
 
+  it('matches common mobile test queries without a live provider', () => {
+    expect(searchPlaces('Suntec').map((place) => place.id)).toContain('suntec-city')
+    expect(searchPlaces('310c').map((place) => place.id)).toContain('310c-jalan-murai')
+  })
+
   it('can restrict results by country', () => {
     const results = searchPlaces('mall', { country: 'MY' })
 

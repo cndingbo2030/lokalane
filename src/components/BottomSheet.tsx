@@ -64,7 +64,7 @@ export function BottomSheet({
 }: BottomSheetProps) {
   if (activeView === 'commute') {
     return (
-      <aside className="bottom-sheet" aria-label="Commute intelligence">
+      <aside className="bottom-sheet view-commute" aria-label="Commute intelligence">
         <ModeSummaryPanel userMode={userMode} />
         <PublicTransportPanel
           userMode={userMode}
@@ -81,7 +81,7 @@ export function BottomSheet({
 
   if (activeView === 'saved') {
     return (
-      <aside className="bottom-sheet" aria-label="Saved places">
+      <aside className="bottom-sheet view-saved" aria-label="Saved places">
         <SavedPlacesPanel
           savedPlaces={savedPlaces}
           onRemove={onToggleSavedPlace}
@@ -93,7 +93,7 @@ export function BottomSheet({
 
   if (activeView === 'community') {
     return (
-      <aside className="bottom-sheet" aria-label="Community intelligence">
+      <aside className="bottom-sheet view-community" aria-label="Community intelligence">
         <CommunityPanel
           selectedPlace={selectedPlace}
           onQueryChange={onQueryChange}
@@ -104,7 +104,7 @@ export function BottomSheet({
 
   if (activeView === 'report') {
     return (
-      <aside className="bottom-sheet" aria-label="Report road condition">
+      <aside className="bottom-sheet view-report" aria-label="Report road condition">
         <ReportIncidentPanel
           selectedPlace={selectedPlace}
           reportCount={incidentReportCount}
@@ -120,7 +120,8 @@ export function BottomSheet({
   }
 
   return (
-    <aside className="bottom-sheet" aria-label="Route intelligence">
+    <aside className="bottom-sheet view-map" aria-label="Route intelligence">
+      <span className="sheet-handle" aria-hidden="true" />
       <div className="sheet-tabs" aria-label="Mobility mode">
         {(['drive', 'transit', 'walk'] as const).map((mode) => (
           <button
@@ -134,19 +135,26 @@ export function BottomSheet({
         ))}
       </div>
 
-      <PlaceDetails
-        place={selectedPlace}
-        isNavigating={isNavigating}
-        isSaved={isSelectedPlaceSaved}
-        onStartNavigation={onStartNavigation}
-        onToggleSaved={() => {
-          if (selectedPlace) {
-            onToggleSavedPlace(selectedPlace.id)
-          }
-        }}
-      />
+      {selectedPlace ? (
+        <PlaceDetails
+          place={selectedPlace}
+          isNavigating={isNavigating}
+          isSaved={isSelectedPlaceSaved}
+          onStartNavigation={onStartNavigation}
+          onToggleSaved={() => {
+            if (selectedPlace) {
+              onToggleSavedPlace(selectedPlace.id)
+            }
+          }}
+        />
+      ) : (
+        <div className="empty-state compact">
+          <strong>No place selected</strong>
+          <span>Try a building name, HDB block, condo, mall, food centre or station.</span>
+        </div>
+      )}
 
-      {isNavigating ? null : (
+      {isNavigating || !selectedPlace ? null : (
         <CommunityDigest
           place={selectedPlace}
           onQueryChange={onQueryChange}
@@ -154,44 +162,48 @@ export function BottomSheet({
         />
       )}
 
-      {userMode === 'visitor' || userMode === 'transit' ? (
+      {selectedPlace && (userMode === 'visitor' || userMode === 'transit') ? (
         <PublicTransportPanel
           userMode={userMode}
           onStartNavigation={onStartNavigation}
         />
       ) : null}
 
-      <QualityReportPanel
-        place={selectedPlace}
-        reportCount={reportCount}
-        onSubmit={onQualityReport}
-      />
+      {selectedPlace ? (
+        <QualityReportPanel
+          place={selectedPlace}
+          reportCount={reportCount}
+          onSubmit={onQualityReport}
+        />
+      ) : null}
 
-      <section className="route-stack" aria-label="Suggested routes">
-        {routeInsights.map((route) => (
-          <button
-            key={route.id}
-            type="button"
-            className={activeRouteId === route.id ? 'route-row active' : 'route-row'}
-            onClick={() => onRouteSelect(route.id)}
-          >
-            <span className="route-icon">
-              <Route size={18} />
-            </span>
-            <div>
-              <strong>{route.title}</strong>
-              <span>{route.subtitle}</span>
-              <small>{getSourceLabel(route.sourceId)} · {Math.round(route.confidence * 100)}% confidence</small>
-            </div>
-            <span className="eta">
-              <Clock3 size={15} />
-              {route.durationMinutes}m
-            </span>
-          </button>
-        ))}
-      </section>
+      {selectedPlace ? (
+        <section className="route-stack" aria-label="Suggested routes">
+          {routeInsights.map((route) => (
+            <button
+              key={route.id}
+              type="button"
+              className={activeRouteId === route.id ? 'route-row active' : 'route-row'}
+              onClick={() => onRouteSelect(route.id)}
+            >
+              <span className="route-icon">
+                <Route size={18} />
+              </span>
+              <div>
+                <strong>{route.title}</strong>
+                <span>{route.subtitle}</span>
+                <small>{getSourceLabel(route.sourceId)} · {Math.round(route.confidence * 100)}% confidence</small>
+              </div>
+              <span className="eta">
+                <Clock3 size={15} />
+                {route.durationMinutes}m
+              </span>
+            </button>
+          ))}
+        </section>
+      ) : null}
 
-      {isNavigating ? null : (
+      {isNavigating || !selectedPlace ? null : (
         <section className="ad-slot" aria-label="Sponsored recommendation">
           <span className="sponsor-icon">
             <BadgeDollarSign size={18} />

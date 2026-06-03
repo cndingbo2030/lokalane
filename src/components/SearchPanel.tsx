@@ -37,7 +37,7 @@ export function SearchPanel({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Local precision layer</p>
-          <h1>Find places, routes and local signals</h1>
+          <h1>{hasQuery ? 'Choose a place' : 'Find places, routes and local signals'}</h1>
         </div>
         <span className={isLoading ? 'live-chip loading' : 'live-chip'}>
           {isLoading ? <LoaderCircle size={13} /> : null}
@@ -79,8 +79,12 @@ export function SearchPanel({
           ))
         ) : (
           <div className="empty-state compact">
-            <strong>No local seed match</strong>
-            <span>Connect OneMap gateway to search every Singapore HDB block, condo and building.</span>
+            <strong>{hasQuery ? `No match for "${query.trim()}"` : 'No local seed match'}</strong>
+            <span>
+              {hasQuery
+                ? 'Local fallback is working. Official OneMap search needs the cloud gateway before it can cover every HDB, condo and building.'
+                : 'Connect OneMap gateway to search every Singapore HDB block, condo and building.'}
+            </span>
           </div>
         )}
       </div>

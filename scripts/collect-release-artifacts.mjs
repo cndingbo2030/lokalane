@@ -1,17 +1,19 @@
-import { copyFile, mkdir, readdir, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const target = process.argv[2]
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const releaseDir = join(projectRoot, 'artifacts', 'releases')
+const packageJson = JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf8'))
+const version = packageJson.version
 
 await mkdir(releaseDir, { recursive: true })
 
 if (target === 'android') {
   await copyIfExists(
     join(projectRoot, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
-    join(releaseDir, 'LokaLane-0.1.0-android-debug.apk'),
+    join(releaseDir, `LokaLane-${version}-android-debug.apk`),
   )
 } else if (target === 'mac') {
   await copyMatching(join(projectRoot, 'artifacts', 'electron'), ['.dmg', '.zip'])

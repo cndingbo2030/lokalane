@@ -9,7 +9,7 @@ interface BottomNavProps {
 
 const navItems: Array<{ view: AppView; label: string; icon: typeof Map }> = [
   { view: 'map', label: 'Map', icon: Map },
-  { view: 'commute', label: 'Commute', icon: TimerReset },
+  { view: 'commute', label: 'Route', icon: TimerReset },
   { view: 'community', label: 'Nearby', icon: MessageCircle },
   { view: 'saved', label: 'Saved', icon: Bookmark },
   { view: 'report', label: 'Report', icon: MessageSquareWarning },

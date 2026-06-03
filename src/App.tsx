@@ -50,11 +50,11 @@ function App() {
   })
   const activeModeProfile = modeProfiles[userMode]
 
+  const hasActiveQuery = query.trim().length > 0
   const selectedPlace =
     results.find((place) => place.id === selectedPlaceId) ??
     results[0] ??
-    getPlaceById(selectedPlaceId) ??
-    places[0]
+    (hasActiveQuery ? undefined : getPlaceById(selectedPlaceId) ?? places[0])
 
   const savedPlaces = savedPlaceIds
     .map((placeId) => results.find((place) => place.id === placeId) ?? getPlaceById(placeId))
@@ -66,6 +66,15 @@ function App() {
       setActiveView('map')
     },
     [setActiveView, setSelectedPlaceId],
+  )
+
+  const handleQueryChange = useCallback(
+    (nextQuery: string) => {
+      setQuery(nextQuery)
+      setActiveView('map')
+      setIsNavigating(false)
+    },
+    [setActiveView, setIsNavigating, setQuery],
   )
 
   const handleStartNavigation = useCallback(() => {
@@ -106,7 +115,7 @@ function App() {
         onBaseMapChange={setBaseMapMode}
         onCountryChange={setCountryFilter}
         onUserModeChange={setUserMode}
-        onQueryChange={setQuery}
+        onQueryChange={handleQueryChange}
       />
 
       <SearchPanel
@@ -116,7 +125,7 @@ function App() {
         isLoading={isLoading}
         query={query}
         userMode={userMode}
-        onQueryChange={setQuery}
+        onQueryChange={handleQueryChange}
         onSelectPlace={handleSelectPlace}
       />
 
@@ -127,7 +136,7 @@ function App() {
         activeView={activeView}
         incidentReportCount={incidentReports.length}
         isNavigating={isNavigating}
-        isSelectedPlaceSaved={savedPlaceIds.includes(selectedPlace.id)}
+        isSelectedPlaceSaved={selectedPlace ? savedPlaceIds.includes(selectedPlace.id) : false}
         selectedPlace={selectedPlace}
         savedPlaces={savedPlaces}
         mobilityMode={mobilityMode}
@@ -139,7 +148,7 @@ function App() {
         userMode={userMode}
         onIncidentReport={addIncidentReport}
         onMobilityModeChange={setMobilityMode}
-        onQueryChange={setQuery}
+        onQueryChange={handleQueryChange}
         onRouteSelect={setActiveRouteId}
         onSelectPlace={handleSelectPlace}
         onStartNavigation={handleStartNavigation}
