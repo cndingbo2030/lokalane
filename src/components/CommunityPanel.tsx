@@ -1,5 +1,4 @@
 import {
-  Bot,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
@@ -14,6 +13,7 @@ import {
   getCommunityPostsForAgent,
 } from '../data/community'
 import type { CommunityPost, CommunityPostStatus, Place } from '../domain/types'
+import { LokaBuddy } from './LokaBuddy'
 
 interface CommunityPanelProps {
   selectedPlace?: Place
@@ -28,14 +28,14 @@ export function CommunityPanel({ selectedPlace, onQueryChange }: CommunityPanelP
     <section className="community-panel" aria-label="Local community intelligence">
       <div className="community-hero">
         <span className="community-agent-icon large">
-          <Bot size={21} />
+          <LokaBuddy size="large" />
         </span>
         <div>
-          <p className="eyebrow">Community, without noise</p>
+          <p className="eyebrow">Nearby, without noise</p>
           <h2>{agent.title}</h2>
           <p>{agent.subtitle}</p>
         </div>
-        <span className="trust-score">{agent.healthScore}% trust</span>
+        <span className="trust-score">{agent.healthScore}% clear</span>
       </div>
 
       <div className="community-focus-grid" aria-label="Community focus">
@@ -47,11 +47,11 @@ export function CommunityPanel({ selectedPlace, onQueryChange }: CommunityPanelP
         ))}
       </div>
 
-      <section className="trust-gate" aria-label="Community compliance controls">
+      <section className="trust-gate" aria-label="Community safety controls">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Trust gate</p>
-            <h2>Helpful first, compliant always</h2>
+            <p className="eyebrow">Safety check</p>
+            <h2>Safe, useful and quiet</h2>
           </div>
           <ShieldCheck size={20} />
         </div>
@@ -78,7 +78,7 @@ export function CommunityPanel({ selectedPlace, onQueryChange }: CommunityPanelP
         <div className="section-heading">
           <div>
             <p className="eyebrow">Local briefs</p>
-            <h2>AI organized, source-labelled</h2>
+            <h2>Clear local briefs</h2>
           </div>
         </div>
         {posts.map((post) => (
@@ -108,7 +108,7 @@ export function CommunityPanel({ selectedPlace, onQueryChange }: CommunityPanelP
       <section className="action-shelf" aria-label="Useful community searches">
         <div>
           <p className="eyebrow">Convenience</p>
-          <h2>Useful, not spammy</h2>
+          <h2>Simple shortcuts</h2>
         </div>
         <div>
           {agent.convenienceActions.map((action) => (

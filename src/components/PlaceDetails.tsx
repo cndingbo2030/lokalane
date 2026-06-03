@@ -1,6 +1,7 @@
 import { Bookmark, BookmarkCheck, ExternalLink, Gauge, MapPinned, Navigation2 } from 'lucide-react'
 import { getSource, getSourceLabel } from '../data/sources'
 import type { Place } from '../domain/types'
+import { PlaceBadges } from './PlaceBadges'
 
 interface PlaceDetailsProps {
   place?: Place
@@ -43,6 +44,8 @@ export function PlaceDetails({
           {getSourceLabel(place.sourceId)}
         </span>
       </div>
+
+      <PlaceBadges place={place} />
 
       <p className="signal-line">{place.signal}</p>
 

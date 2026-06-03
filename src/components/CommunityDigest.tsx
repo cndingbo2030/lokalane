@@ -1,6 +1,7 @@
-import { Bot, ChevronRight, ShieldCheck } from 'lucide-react'
+import { ChevronRight, ShieldCheck } from 'lucide-react'
 import { getCommunityAgentForPlace, getCommunityPostsForAgent } from '../data/community'
 import type { AppView, Place } from '../domain/types'
+import { LokaBuddy } from './LokaBuddy'
 
 interface CommunityDigestProps {
   place?: Place
@@ -20,10 +21,10 @@ export function CommunityDigest({
     <section className="community-digest" aria-label="Local community digest">
       <div className="community-digest-heading">
         <span className="community-agent-icon">
-          <Bot size={17} />
+          <LokaBuddy />
         </span>
         <div>
-          <p className="eyebrow">AI community steward</p>
+          <p className="eyebrow">Local helper</p>
           <strong>{agent.area}</strong>
         </div>
         <span className="trust-chip">
@@ -51,9 +52,9 @@ export function CommunityDigest({
       ) : null}
 
       <div className="community-digest-footer">
-        <span>Source-labelled, quiet by default</span>
+        <span>AI-assisted, quiet by default</span>
         <button type="button" onClick={() => onViewChange('community')}>
-          Open community
+          Open Nearby
         </button>
       </div>
     </section>
