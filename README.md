@@ -55,6 +55,21 @@ npm run test
 npm run build
 ```
 
+Build local test installers:
+
+```bash
+npm run android:debug
+npm run mac:package
+```
+
+Generated test artifacts are copied to `artifacts/releases/`. Android debug APKs are unsigned debug builds for device testing. macOS packages are unsigned local test builds and may require right-click Open on first launch.
+
+Android packaging requires Java 21 and Android command line tools. On macOS with Homebrew:
+
+```bash
+brew install openjdk@21 android-commandlinetools
+```
+
 ## OneMap Integration
 
 The app is designed to call a server-side proxy at `VITE_LOKALANE_API_BASE`. Do not put OneMap or LTA credentials in Vite client code.

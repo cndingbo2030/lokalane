@@ -4,16 +4,50 @@
   "version": "0.1.0",
   "description": "Singapore-first, Malaysia-ready local navigation map.",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "dev:proxy": "node scripts/local-provider-proxy.mjs",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:web",
+    "build:web": "tsc -b && vite build",
     "lint": "eslint .",
+    "android:sync": "npm run build:web && cap sync android",
+    "android:debug": "bash scripts/build-android-debug.sh",
+    "mac:package": "npm run build:web && electron-builder --mac dmg zip --arm64 --publish never && node scripts/collect-release-artifacts.mjs mac",
+    "package:test": "npm run android:debug && npm run mac:package",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "build": {
+    "appId": "com.lokalane.app",
+    "productName": "LokaLane",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "artifacts/electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.navigation",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    }
+  },
   "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "@types/leaflet": "^1.9.21",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
@@ -23,6 +57,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.0",
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -31,6 +66,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
