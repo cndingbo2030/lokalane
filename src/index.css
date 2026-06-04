@@ -22,6 +22,8 @@
   --line: #dce2dd;
   --green: #17664f;
   --green-strong: #0d4f3c;
+  --green-deep: #0b563f;
+  --green-lift: #1c745a;
   --teal: #147a83;
   --blue: #2762a6;
   --yellow: #f1c94a;
@@ -2356,9 +2358,12 @@ h2 {
     width: calc(100vw - 20px);
     max-height: 46dvh;
     gap: 8px;
-    padding: 9px 10px;
+    padding: 10px 12px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.82);
     border-bottom: 0;
     border-radius: 8px 8px 0 0;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -18px 42px rgba(20, 29, 24, 0.13);
   }
 
   .bottom-sheet.view-map {
@@ -2370,11 +2375,11 @@ h2 {
   .sheet-handle {
     display: block;
     justify-self: center;
-    width: 38px;
-    height: 4px;
+    width: 34px;
+    height: 3px;
     margin: -2px 0 0;
     border-radius: 999px;
-    background: rgba(104, 115, 109, 0.34);
+    background: rgba(104, 115, 109, 0.26);
   }
 
   .bottom-sheet.view-map .community-digest,
@@ -2415,16 +2420,23 @@ h2 {
   }
 
   .bottom-sheet.view-map .action-row button {
-    min-height: 40px;
-    padding: 0 12px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
     font-size: 0.82rem;
   }
 
   .bottom-sheet.view-map .action-row {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr);
-    gap: 8px;
+    gap: 5px;
     margin-top: 2px;
+    padding: 4px;
+    border: 1px solid rgba(220, 226, 221, 0.72);
+    border-radius: 999px;
+    background: #f4f7f5;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .bottom-sheet.view-map .action-row a {
@@ -2438,22 +2450,74 @@ h2 {
     white-space: nowrap;
   }
 
+  .bottom-sheet.view-map .action-row .primary-action {
+    background: linear-gradient(180deg, var(--green-lift), var(--green-deep));
+    box-shadow:
+      0 8px 18px rgba(13, 79, 60, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+
+  .bottom-sheet.view-map .action-row button:not(.primary-action) {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow:
+      0 1px 0 rgba(20, 29, 24, 0.04),
+      inset 0 0 0 1px rgba(220, 226, 221, 0.82);
+  }
+
   .bottom-nav {
     right: 10px;
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
     left: 10px;
     width: calc(100vw - 20px);
     min-height: 56px;
-    padding: 5px 6px;
-    border-top: 1px solid rgba(220, 226, 221, 0.9);
+    padding: 4px 7px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    border-top: 1px solid rgba(224, 231, 226, 0.78);
     border-radius: 0 0 8px 8px;
+    background: rgba(255, 255, 255, 0.96);
     box-shadow: none;
   }
 
   .bottom-nav button {
+    position: relative;
+    isolation: isolate;
     min-height: 44px;
     border-radius: 8px;
+    color: #6b756f;
+    background: transparent;
     font-size: 0.6rem;
+  }
+
+  .bottom-nav button.active {
+    color: var(--green);
+    background: transparent;
+  }
+
+  .bottom-nav button.active::before {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    z-index: -1;
+    width: 38px;
+    height: 25px;
+    border: 1px solid rgba(23, 102, 79, 0.13);
+    border-radius: 999px;
+    background: #edf7f2;
+    transform: translateX(-50%);
+    content: '';
+  }
+
+  .bottom-nav button.active::after {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 22px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--green);
+    transform: translateX(-50%);
+    content: '';
   }
 
   .leaflet-control-zoom {
@@ -2474,9 +2538,8 @@ h2 {
     grid-auto-columns: minmax(232px, 86%);
   }
 
-  .bottom-sheet.view-map .action-row a,
   .bottom-sheet.view-map .action-row button {
-    font-size: 0.68rem;
+    font-size: 0.74rem;
   }
 }
 
@@ -2622,9 +2685,12 @@ h2 {
     left: 12px;
     width: calc(100vw - 24px);
     max-height: 44dvh;
-    padding: 10px 12px;
+    padding: 11px 14px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.82);
     border-bottom: 0;
     border-radius: 8px 8px 0 0;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -18px 42px rgba(20, 29, 24, 0.12);
   }
 
   .bottom-sheet.view-map {
@@ -2674,8 +2740,12 @@ h2 {
     grid-row: auto;
     display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    gap: 9px;
+    gap: 5px;
     margin-top: 0;
+    padding: 4px;
+    border: 1px solid rgba(220, 226, 221, 0.74);
+    border-radius: 999px;
+    background: #f4f7f5;
   }
 
   .bottom-sheet.view-map .action-row a {
@@ -2686,7 +2756,24 @@ h2 {
     min-height: 38px;
     justify-content: center;
     padding: 0 12px;
+    border: 0;
+    border-radius: 999px;
     font-size: 0.82rem;
+  }
+
+  .bottom-sheet.view-map .action-row .primary-action {
+    background: linear-gradient(180deg, var(--green-lift), var(--green-deep));
+    box-shadow:
+      0 8px 18px rgba(13, 79, 60, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+
+  .bottom-sheet.view-map .action-row button:not(.primary-action) {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow:
+      0 1px 0 rgba(20, 29, 24, 0.04),
+      inset 0 0 0 1px rgba(220, 226, 221, 0.82);
   }
 
   .bottom-nav {
@@ -2695,17 +2782,54 @@ h2 {
     left: 12px;
     width: calc(100vw - 24px);
     min-height: 56px;
-    padding: 5px 8px;
-    border-top: 1px solid rgba(220, 226, 221, 0.9);
+    padding: 4px 9px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    border-top: 1px solid rgba(224, 231, 226, 0.78);
     border-radius: 0 0 8px 8px;
+    background: rgba(255, 255, 255, 0.96);
     box-shadow: none;
   }
 
   .bottom-nav button {
+    position: relative;
+    isolation: isolate;
     flex-direction: column;
     gap: 2px;
     min-height: 44px;
+    color: #6b756f;
+    background: transparent;
     font-size: 0.62rem;
+  }
+
+  .bottom-nav button.active {
+    color: var(--green);
+    background: transparent;
+  }
+
+  .bottom-nav button.active::before {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    z-index: -1;
+    width: 42px;
+    height: 25px;
+    border: 1px solid rgba(23, 102, 79, 0.13);
+    border-radius: 999px;
+    background: #edf7f2;
+    transform: translateX(-50%);
+    content: '';
+  }
+
+  .bottom-nav button.active::after {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 24px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--green);
+    transform: translateX(-50%);
+    content: '';
   }
 
   .leaflet-control-zoom {
