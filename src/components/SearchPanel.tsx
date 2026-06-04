@@ -183,7 +183,6 @@ function SearchResultRow({
       </span>
       <span className="search-result-metrics">
         <strong>{formatDistance(place.coordinates, referenceCoordinates)}</strong>
-        <span title="Address match score">{Math.round(place.confidence * 100)}% address</span>
       </span>
     </button>
   )
@@ -206,7 +205,7 @@ function SearchSkeletonList() {
 }
 
 function renderCategoryIcon(category: Place['category']) {
-  const iconProps = { size: 18, strokeWidth: 2.25 }
+  const iconProps = { size: 19, strokeWidth: 1.65 }
 
   if (category === 'transport') {
     return <TrainFront {...iconProps} />
