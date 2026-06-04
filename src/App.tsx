@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { BottomNav } from './components/BottomNav'
 import { BottomSheet } from './components/BottomSheet'
 import { LayerDock } from './components/LayerDock'
@@ -42,6 +42,8 @@ function App() {
     toggleSavedPlace,
     toggleLayer,
   } = useAppStore()
+  const hasActiveQuery = query.trim().length > 0
+  const [isSearchResultsOpen, setIsSearchResultsOpen] = useState(hasActiveQuery)
 
   const { places: results, signals, isLoading } = useHybridSearch(query, {
     country: countryFilter,
@@ -50,7 +52,6 @@ function App() {
   })
   const activeModeProfile = modeProfiles[userMode]
 
-  const hasActiveQuery = query.trim().length > 0
   const selectedPlace =
     results.find((place) => place.id === selectedPlaceId) ??
     results[0] ??
@@ -64,6 +65,7 @@ function App() {
     (placeId: string) => {
       setSelectedPlaceId(placeId)
       setActiveView('map')
+      setIsSearchResultsOpen(false)
     },
     [setActiveView, setSelectedPlaceId],
   )
@@ -71,6 +73,7 @@ function App() {
   const handleQueryChange = useCallback(
     (nextQuery: string) => {
       setQuery(nextQuery)
+      setIsSearchResultsOpen(nextQuery.trim().length > 0)
       setActiveView('map')
       setIsNavigating(false)
     },
@@ -86,6 +89,19 @@ function App() {
     () => setIsNavigating(false),
     [setIsNavigating],
   )
+
+  const handleSearchClear = useCallback(() => {
+    setQuery('')
+    setIsSearchResultsOpen(false)
+    setActiveView('map')
+    setIsNavigating(false)
+  }, [setActiveView, setIsNavigating, setQuery])
+
+  const handleSearchFocus = useCallback(() => {
+    if (query.trim().length > 0) {
+      setIsSearchResultsOpen(true)
+    }
+  }, [query])
 
   return (
     <main className={isNavigating ? 'app-shell is-navigating' : 'app-shell'}>
@@ -116,13 +132,17 @@ function App() {
         onCountryChange={setCountryFilter}
         onUserModeChange={setUserMode}
         onQueryChange={handleQueryChange}
+        onSearchClear={handleSearchClear}
+        onSearchFocus={handleSearchFocus}
       />
 
       <SearchPanel
         results={results}
+        savedPlaces={savedPlaces}
         selectedPlace={selectedPlace}
         signals={signals}
         isLoading={isLoading}
+        isOpen={isSearchResultsOpen}
         query={query}
         userMode={userMode}
         onQueryChange={handleQueryChange}
@@ -130,6 +150,7 @@ function App() {
       />
 
       <LayerDock
+        isHidden={hasActiveQuery && isSearchResultsOpen}
         visibleLayerIds={visibleLayerIds}
         onToggleLayer={toggleLayer}
         onReportClick={() => setActiveView('report')}

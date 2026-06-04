@@ -1,4 +1,4 @@
-import { Layers3, MapPinned, Navigation, Search } from 'lucide-react'
+import { Layers3, MapPinned, Navigation, Search, X } from 'lucide-react'
 import type { BaseMapMode, CountryCode, UserMode } from '../domain/types'
 import { ModeMenu } from './ModeMenu'
 
@@ -12,6 +12,8 @@ interface TopBarProps {
   onCountryChange: (country: CountryCode | 'ALL') => void
   onUserModeChange: (mode: UserMode) => void
   onQueryChange: (query: string) => void
+  onSearchClear: () => void
+  onSearchFocus: () => void
 }
 
 export function TopBar({
@@ -24,7 +26,11 @@ export function TopBar({
   onCountryChange,
   onUserModeChange,
   onQueryChange,
+  onSearchClear,
+  onSearchFocus,
 }: TopBarProps) {
+  const hasQuery = query.trim().length > 0
+
   return (
     <header className="top-bar">
       <div className="brand-lockup" aria-label="LokaLane">
@@ -34,15 +40,27 @@ export function TopBar({
         <span className="brand-name">LokaLane</span>
       </div>
 
-      <label className="search-shell">
+      <div className="search-shell">
         <Search size={18} aria-hidden="true" />
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
+          onFocus={onSearchFocus}
           placeholder={searchPlaceholder}
           aria-label="Search places"
         />
-      </label>
+        {hasQuery ? (
+          <button
+            type="button"
+            className="search-clear-button"
+            aria-label="Clear search"
+            title="Clear search"
+            onClick={onSearchClear}
+          >
+            <X size={18} />
+          </button>
+        ) : null}
+      </div>
 
       <div className="segmented-controls" aria-label="Country filter">
         {(['ALL', 'SG', 'MY'] as const).map((country) => (

@@ -2,14 +2,19 @@ import { BatteryCharging, BusFront, CircleAlert, ParkingCircle, Route, TriangleA
 import { mapLayers } from '../data/layers'
 
 interface LayerDockProps {
+  isHidden: boolean
   visibleLayerIds: string[]
   onToggleLayer: (layerId: string) => void
   onReportClick: () => void
 }
 
-export function LayerDock({ visibleLayerIds, onToggleLayer, onReportClick }: LayerDockProps) {
+export function LayerDock({ isHidden, visibleLayerIds, onToggleLayer, onReportClick }: LayerDockProps) {
   return (
-    <nav className="layer-dock fab-stack" aria-label="Map controls">
+    <nav
+      className={isHidden ? 'layer-dock fab-stack is-hidden' : 'layer-dock fab-stack'}
+      aria-hidden={isHidden}
+      aria-label="Map controls"
+    >
       {mapLayers.map((layer) => (
         <button
           key={layer.id}
