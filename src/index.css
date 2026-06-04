@@ -2334,17 +2334,18 @@ h2 {
 
   .bottom-sheet {
     right: 10px;
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
     left: 10px;
     width: calc(100vw - 20px);
     max-height: 46dvh;
     gap: 10px;
     padding: 10px;
-    border-radius: 8px;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
   }
 
   .bottom-sheet.view-map {
-    max-height: min(36dvh, 258px);
+    max-height: min(24dvh, 188px);
     overflow: hidden;
     padding-top: 9px;
   }
@@ -2368,13 +2369,7 @@ h2 {
   }
 
   .bottom-sheet.view-map .sheet-tabs {
-    height: 38px;
-    padding: 3px;
-  }
-
-  .bottom-sheet.view-map .sheet-tabs button {
-    height: 30px;
-    font-size: 0.7rem;
+    display: none;
   }
 
   .bottom-sheet.view-map .place-details {
@@ -2395,35 +2390,33 @@ h2 {
     white-space: nowrap;
   }
 
-  .bottom-sheet.view-map .metric-strip {
-    gap: 6px;
-  }
-
-  .bottom-sheet.view-map .metric-strip span,
-  .bottom-sheet.view-map .action-row a,
-  .bottom-sheet.view-map .action-row button {
-    min-height: 36px;
-    padding: 0 9px;
-    font-size: 0.74rem;
-  }
-
+  .bottom-sheet.view-map .metric-strip,
   .bottom-sheet.view-map .place-badge-strip,
   .bottom-sheet.view-map .signal-line {
     display: none;
   }
 
-  .bottom-sheet.view-map .action-row {
-    display: grid;
-    grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr));
-    gap: 5px;
+  .bottom-sheet.view-map .action-row button {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 0.88rem;
   }
 
-  .bottom-sheet.view-map .action-row a,
+  .bottom-sheet.view-map .action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr);
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .bottom-sheet.view-map .action-row a {
+    display: none;
+  }
+
   .bottom-sheet.view-map .action-row button {
     flex: none;
     min-width: 0;
     overflow: hidden;
-    padding: 0 3px;
     white-space: nowrap;
   }
 
@@ -2434,7 +2427,9 @@ h2 {
     width: calc(100vw - 20px);
     min-height: 60px;
     padding: 6px;
-    border-radius: 8px;
+    border-top: 1px solid rgba(220, 226, 221, 0.9);
+    border-radius: 0 0 8px 8px;
+    box-shadow: none;
   }
 
   .bottom-nav button {
@@ -2538,15 +2533,17 @@ h2 {
 
   .bottom-sheet {
     right: 12px;
-    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     left: 12px;
     width: calc(100vw - 24px);
     max-height: 44dvh;
     padding: 12px;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
   }
 
   .bottom-sheet.view-map {
-    max-height: min(34dvh, 268px);
+    max-height: min(23dvh, 196px);
     overflow: hidden;
   }
 
@@ -2567,6 +2564,10 @@ h2 {
     gap: 8px;
   }
 
+  .bottom-sheet.view-map .sheet-tabs {
+    display: none;
+  }
+
   .bottom-sheet.view-map .place-details h2 {
     display: -webkit-box;
     overflow: hidden;
@@ -2577,6 +2578,7 @@ h2 {
     -webkit-line-clamp: 2;
   }
 
+  .bottom-sheet.view-map .metric-strip,
   .bottom-sheet.view-map .place-badge-strip,
   .bottom-sheet.view-map .signal-line {
     display: none;
@@ -2586,16 +2588,20 @@ h2 {
     grid-column: 1;
     grid-row: auto;
     display: grid;
-    grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr));
-    gap: 7px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 8px;
+    margin-top: 2px;
   }
 
-  .bottom-sheet.view-map .action-row a,
+  .bottom-sheet.view-map .action-row a {
+    display: none;
+  }
+
   .bottom-sheet.view-map .action-row button {
     min-height: 40px;
     justify-content: center;
-    padding: 0 8px;
-    font-size: 0.76rem;
+    padding: 0 12px;
+    font-size: 0.86rem;
   }
 
   .bottom-nav {
@@ -2604,6 +2610,9 @@ h2 {
     left: 12px;
     width: calc(100vw - 24px);
     min-height: 62px;
+    border-top: 1px solid rgba(220, 226, 221, 0.9);
+    border-radius: 0 0 8px 8px;
+    box-shadow: none;
   }
 
   .bottom-nav button {
