@@ -103,6 +103,8 @@ a {
 /* High-specificity visual polish guards for the search results layer. */
 .app-shell .search-results-layer {
   isolation: isolate;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border-color: var(--highlight-hairline);
   border-radius: var(--radius-card);
   background:
@@ -115,7 +117,30 @@ a {
   backdrop-filter: blur(18px) saturate(1.05);
 }
 
+.app-shell.is-searching .search-results-layer {
+  top: 96px;
+  bottom: calc(82px + env(safe-area-inset-bottom));
+  max-height: none;
+  animation: search-layer-enter 220ms ease-out both;
+}
+
+.app-shell.is-searching .layer-dock {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(14px) scale(0.98);
+}
+
+.app-shell .search-result-list {
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 12px 14px;
+}
+
 .app-shell .search-results-head .live-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 7px;
   min-height: 28px;
   padding: 0 10px;
@@ -129,6 +154,8 @@ a {
 }
 
 .app-shell .search-results-head .live-chip::before {
+  display: block;
+  flex: 0 0 6px;
   width: 6px;
   height: 6px;
   border-radius: var(--radius-fab);
@@ -156,7 +183,8 @@ a {
   overflow: hidden;
   grid-template-columns: 48px minmax(0, 1fr) minmax(68px, auto);
   gap: 14px;
-  min-height: 88px;
+  height: 96px;
+  min-height: 96px;
   padding: var(--space-row-y) var(--space-row-x);
   border: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 14px;
@@ -166,6 +194,32 @@ a {
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.app-shell .search-result-row::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+  content: '';
+  transition:
+    background 160ms ease-out,
+    opacity 160ms ease-out;
+}
+
+.app-shell .search-result-row.top-result {
+  border-color: rgba(64, 145, 108, 0.15);
+  background:
+    linear-gradient(180deg, rgba(64, 145, 108, 0.075), rgba(64, 145, 108, 0.022)),
+    var(--surface-2);
+}
+
+.app-shell .search-result-row.top-result::before,
+.app-shell .search-result-row.active::before {
+  background: var(--brand-accent);
 }
 
 .app-shell .search-result-row.active,
@@ -201,18 +255,27 @@ a {
 }
 
 .app-shell .search-result-copy strong {
+  display: block;
+  overflow: hidden;
   color: var(--text-primary);
   font-size: var(--font-title-size);
   font-weight: var(--font-title-weight);
   letter-spacing: -0.01em;
   line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-shell .search-result-copy span {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--text-secondary);
   font-size: var(--font-body-size);
   font-weight: var(--font-body-weight);
-  line-height: 1.3;
+  line-height: 1.24;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .app-shell .search-result-copy em {
@@ -235,11 +298,64 @@ a {
   letter-spacing: -0.01em;
 }
 
+.app-shell .search-result-metrics {
+  justify-self: end;
+  min-width: 68px;
+  text-align: right;
+}
+
 .app-shell .search-result-row.active .search-result-metrics strong {
   color: #9bd8c0;
 }
 
+.app-shell .map-theme-dark ~ .top-bar .segmented-controls button.active,
+.app-shell .map-theme-dark ~ .top-bar .icon-toggle-group button.active {
+  color: var(--text-primary);
+  background:
+    linear-gradient(180deg, rgba(64, 145, 108, 0.98), rgba(45, 106, 79, 0.92)),
+    var(--brand-primary);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.app-shell .map-theme-dark ~ .top-bar .segmented-controls button,
+.app-shell .map-theme-dark ~ .top-bar .icon-toggle-group button {
+  transition:
+    color 150ms ease-out,
+    background 150ms ease-out,
+    transform 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+
+.app-shell .map-theme-dark ~ .top-bar .segmented-controls button:active,
+.app-shell .map-theme-dark ~ .top-bar .icon-toggle-group button:active {
+  transform: scale(0.96);
+}
+
+@keyframes search-layer-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 920px) {
+  .app-shell.is-searching .search-results-layer {
+    top: 138px;
+    right: 12px;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    animation: search-layer-enter-phone 220ms ease-out both;
+    transform: none;
+  }
+
   .app-shell .bottom-sheet.view-map.sheet-stage-peek {
     max-height: min(27dvh, 224px);
     padding-bottom: 14px;
@@ -283,6 +399,69 @@ a {
     box-shadow:
       0 -12px 32px rgba(0, 0, 0, 0.34),
       inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell.is-searching .search-results-layer {
+    top: 132px;
+    right: 10px;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    left: 10px;
+    width: auto;
+    max-height: none;
+    animation: search-layer-enter-phone 220ms ease-out both;
+    transform: none;
+  }
+
+  .app-shell .search-results-layer {
+    border-radius: 15px;
+  }
+
+  .app-shell .search-result-list {
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .app-shell .search-result-row {
+    grid-template-columns: 44px minmax(0, 1fr) 58px;
+    gap: 10px;
+    height: 92px;
+    min-height: 92px;
+    padding: 14px 12px;
+  }
+
+  .app-shell .search-result-copy strong {
+    display: block;
+    font-size: 1rem;
+    white-space: nowrap;
+    -webkit-line-clamp: initial;
+  }
+
+  .app-shell .search-result-copy span {
+    font-size: 0.82rem;
+    line-height: 1.22;
+  }
+
+  .app-shell .search-result-metrics {
+    grid-column: auto;
+    grid-row: auto;
+    display: grid;
+    justify-items: end;
+    min-width: 58px;
+    text-align: right;
+  }
+}
+
+@keyframes search-layer-enter-phone {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

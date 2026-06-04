@@ -44,6 +44,7 @@ function App() {
   } = useAppStore()
   const hasActiveQuery = query.trim().length > 0
   const [isSearchResultsOpen, setIsSearchResultsOpen] = useState(hasActiveQuery)
+  const isSearching = hasActiveQuery && isSearchResultsOpen
 
   const { places: results, signals, isLoading } = useHybridSearch(query, {
     country: countryFilter,
@@ -53,9 +54,24 @@ function App() {
   const activeModeProfile = modeProfiles[userMode]
 
   const selectedPlace =
-    results.find((place) => place.id === selectedPlaceId) ??
-    results[0] ??
-    (hasActiveQuery ? undefined : getPlaceById(selectedPlaceId) ?? places[0])
+    isSearching
+      ? undefined
+      : results.find((place) => place.id === selectedPlaceId) ??
+        results[0] ??
+        (hasActiveQuery ? undefined : getPlaceById(selectedPlaceId) ?? places[0])
+
+  const shellStateClass = isSearching
+    ? 'is-searching'
+    : hasActiveQuery
+      ? 'is-selected-search'
+      : 'is-default'
+  const shellClassName = [
+    'app-shell',
+    shellStateClass,
+    isNavigating ? 'is-navigating' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   const savedPlaces = savedPlaceIds
     .map((placeId) => results.find((place) => place.id === placeId) ?? getPlaceById(placeId))
@@ -104,7 +120,7 @@ function App() {
   }, [query])
 
   return (
-    <main className={isNavigating ? 'app-shell is-navigating' : 'app-shell'}>
+    <main className={shellClassName}>
       <MapCanvas
         places={results}
         selectedPlace={selectedPlace}
@@ -150,37 +166,39 @@ function App() {
       />
 
       <LayerDock
-        isHidden={hasActiveQuery && isSearchResultsOpen}
+        isHidden={isSearching}
         visibleLayerIds={visibleLayerIds}
         onToggleLayer={toggleLayer}
         onReportClick={() => setActiveView('report')}
       />
 
-      <BottomSheet
-        activeRouteId={activeRouteId}
-        activeView={activeView}
-        incidentReportCount={incidentReports.length}
-        isNavigating={isNavigating}
-        isSelectedPlaceSaved={selectedPlace ? savedPlaceIds.includes(selectedPlace.id) : false}
-        selectedPlace={selectedPlace}
-        savedPlaces={savedPlaces}
-        mobilityMode={mobilityMode}
-        reportCount={
-          selectedPlace
-            ? qualityReports.filter((report) => report.placeId === selectedPlace.id).length
-            : 0
-        }
-        userMode={userMode}
-        onIncidentReport={addIncidentReport}
-        onMobilityModeChange={setMobilityMode}
-        onQueryChange={handleQueryChange}
-        onRouteSelect={setActiveRouteId}
-        onSelectPlace={handleSelectPlace}
-        onStartNavigation={handleStartNavigation}
-        onQualityReport={addQualityReport}
-        onToggleSavedPlace={toggleSavedPlace}
-        onViewChange={setActiveView}
-      />
+      {!isSearching ? (
+        <BottomSheet
+          activeRouteId={activeRouteId}
+          activeView={activeView}
+          incidentReportCount={incidentReports.length}
+          isNavigating={isNavigating}
+          isSelectedPlaceSaved={selectedPlace ? savedPlaceIds.includes(selectedPlace.id) : false}
+          selectedPlace={selectedPlace}
+          savedPlaces={savedPlaces}
+          mobilityMode={mobilityMode}
+          reportCount={
+            selectedPlace
+              ? qualityReports.filter((report) => report.placeId === selectedPlace.id).length
+              : 0
+          }
+          userMode={userMode}
+          onIncidentReport={addIncidentReport}
+          onMobilityModeChange={setMobilityMode}
+          onQueryChange={handleQueryChange}
+          onRouteSelect={setActiveRouteId}
+          onSelectPlace={handleSelectPlace}
+          onStartNavigation={handleStartNavigation}
+          onQualityReport={addQualityReport}
+          onToggleSavedPlace={toggleSavedPlace}
+          onViewChange={setActiveView}
+        />
+      ) : null}
 
       <BottomNav
         activeView={activeView}

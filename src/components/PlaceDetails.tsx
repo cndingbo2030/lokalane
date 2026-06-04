@@ -1,6 +1,7 @@
 import { Bookmark, BookmarkCheck, ExternalLink, Gauge, MapPinned, Navigation2 } from 'lucide-react'
 import { getSource, getSourceLabel } from '../data/sources'
 import type { Place } from '../domain/types'
+import { getPlaceDisplayAddress, getPlaceDisplayTitle } from '../utils/placeDisplay'
 import { PlaceBadges } from './PlaceBadges'
 
 interface PlaceDetailsProps {
@@ -30,8 +31,8 @@ export function PlaceDetails({
     <section className="place-details" aria-label="Place details">
       <div>
         <p className="eyebrow">{place.country} · {place.category}</p>
-        <h2>{place.name}</h2>
-        <p>{place.address}</p>
+        <h2>{getPlaceDisplayTitle(place)}</h2>
+        <p>{getPlaceDisplayAddress(place)}</p>
       </div>
 
       <div className="metric-strip">

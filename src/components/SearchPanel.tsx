@@ -17,6 +17,7 @@ import {
 import { getSourceLabel } from '../data/sources'
 import type { Coordinates, Place, ProviderSignal, UserMode } from '../domain/types'
 import { useProviderHealth } from '../hooks/useProviderHealth'
+import { getPlaceDisplayAddress, getPlaceDisplayTitle } from '../utils/placeDisplay'
 import { ProviderStatusCard } from './ProviderStatusCard'
 import { VisitorFocus } from './VisitorFocus'
 
@@ -80,12 +81,13 @@ export function SearchPanel({
 
         {results.length > 0 ? (
           <div className="search-result-list" aria-label="Place results">
-            {results.map((place) => (
+            {results.map((place, index) => (
               <SearchResultRow
                 key={place.id}
                 place={place}
                 referenceCoordinates={selectedPlace?.coordinates ?? results[0]?.coordinates}
                 isActive={selectedPlace?.id === place.id}
+                isTopResult={index === 0}
                 onSelect={() => onSelectPlace(place.id)}
               />
             ))}
@@ -157,11 +159,13 @@ export function SearchPanel({
 
 function SearchResultRow({
   isActive,
+  isTopResult,
   place,
   referenceCoordinates,
   onSelect,
 }: {
   isActive: boolean
+  isTopResult: boolean
   place: Place
   referenceCoordinates?: Coordinates
   onSelect: () => void
@@ -169,7 +173,13 @@ function SearchResultRow({
   return (
     <button
       type="button"
-      className={isActive ? 'search-result-row active' : 'search-result-row'}
+      className={[
+        'search-result-row',
+        isTopResult ? 'top-result' : '',
+        isActive ? 'active' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       aria-label={`Select ${place.name}, ${place.address}`}
       onClick={onSelect}
     >
@@ -177,8 +187,8 @@ function SearchResultRow({
         {renderCategoryIcon(place.category)}
       </span>
       <span className="search-result-copy">
-        <strong>{place.name}</strong>
-        <span>{place.address}</span>
+        <strong>{getPlaceDisplayTitle(place)}</strong>
+        <span>{getPlaceDisplayAddress(place)}</span>
         <em>{formatCategory(place.category)}</em>
       </span>
       <span className="search-result-metrics">
