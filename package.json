@@ -1,7 +1,7 @@
 {
   "name": "lokalane",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Singapore-first, Malaysia-ready local navigation map.",
   "type": "module",
   "main": "electron/main.cjs",
