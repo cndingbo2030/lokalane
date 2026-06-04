@@ -27,7 +27,9 @@ export function BottomNav({ activeView, isNavigating, onViewChange }: BottomNavP
             className={activeView === item.view ? 'active' : ''}
             onClick={() => onViewChange(item.view)}
           >
-            <Icon size={18} />
+            <span className="nav-icon" aria-hidden="true">
+              <Icon size={18} />
+            </span>
             <span>{item.label}</span>
           </button>
         )

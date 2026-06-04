@@ -58,7 +58,7 @@ export function SearchPanel({
         ))}
       </div>
 
-      <div className="result-list">
+      <div className="result-list" aria-label="Swipeable place results">
         {results.length > 0 ? (
           results.map((place) => (
             <button
@@ -71,10 +71,16 @@ export function SearchPanel({
                 <MapPin size={18} />
               </span>
               <span className="result-copy">
-                <strong>{place.name}</strong>
-                <span>{formatCategory(place.category)} · {place.address}</span>
+                <span className="result-title-row">
+                  <strong>{place.name}</strong>
+                  <em>{formatCategory(place.category)}</em>
+                </span>
+                <span>{place.address}</span>
               </span>
-              <span className="confidence">{Math.round(place.confidence * 100)}%</span>
+              <span className="confidence">
+                <i aria-hidden="true" />
+                {Math.round(place.confidence * 100)}%
+              </span>
             </button>
           ))
         ) : (
