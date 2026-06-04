@@ -111,17 +111,47 @@ export function MapCanvas({
       updatedAt: report.createdAt,
     }))
 
-    const visiblePoints = [...layerPoints, ...reportsAsPoints].filter((point) =>
+    const selectedPlacePulse: LayerPoint[] = selectedPlace
+      ? [
+          {
+            id: `community-pulse-${selectedPlace.id}`,
+            layerId: 'community',
+            title: `${selectedPlace.area} local pulse`,
+            subtitle: 'Recent nearby check-ins, queue notes and local tips',
+            coordinates: {
+              lat: selectedPlace.coordinates.lat + 0.00035,
+              lng: selectedPlace.coordinates.lng + 0.00045,
+            },
+            sourceId: 'community',
+            severity: 'low',
+            updatedAt: selectedPlace.updatedAt,
+          },
+        ]
+      : []
+
+    const visiblePoints = [...layerPoints, ...reportsAsPoints, ...selectedPlacePulse].filter((point) =>
       visibleLayerIds.includes(point.layerId),
     )
 
     visiblePoints.forEach((point) => {
-      L.marker([point.coordinates.lat, point.coordinates.lng], {
+      const marker = L.marker([point.coordinates.lat, point.coordinates.lng], {
         icon: createLayerIcon(point),
         title: `${point.title}: ${point.subtitle}`,
-      }).addTo(overlayLayer)
+      })
+
+      marker.bindPopup(createReportPopup(point), {
+        className: point.layerId === 'community' ? 'community-popup' : 'signal-popup',
+        closeButton: false,
+        maxWidth: 230,
+      })
+      marker.addTo(overlayLayer)
     })
-  }, [incidentReports, layerPoints, visibleLayerIds])
+  }, [
+    incidentReports,
+    layerPoints,
+    selectedPlace,
+    visibleLayerIds,
+  ])
 
   useEffect(() => {
     const map = mapRef.current
@@ -134,7 +164,13 @@ export function MapCanvas({
     })
   }, [selectedPlace])
 
-  return <div ref={containerRef} className="map-canvas" aria-label="LokaLane map" />
+  return (
+    <div
+      ref={containerRef}
+      className={baseMapMode === 'regional' ? 'map-canvas map-theme-dark' : 'map-canvas map-theme-official'}
+      aria-label="LokaLane map"
+    />
+  )
 }
 
 function createTileLayer(mode: BaseMapMode) {
@@ -188,12 +224,58 @@ function getCategoryInitial(category: Place['category']) {
 }
 
 function createLayerIcon(point: LayerPoint) {
+  if (point.layerId === 'community') {
+    return L.divIcon({
+      className: `community-mood-marker mood-${point.severity}`,
+      html: `
+        <span class="mood-face">${getMoodFace(point)}</span>
+        <span class="mood-signal">${getLayerInitial(point.layerId)}</span>
+      `,
+      iconSize: [40, 46],
+      iconAnchor: [20, 36],
+    })
+  }
+
   return L.divIcon({
     className: `layer-marker layer-${point.layerId} severity-${point.severity}`,
     html: `<span>${getLayerInitial(point.layerId)}</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
   })
+}
+
+function createReportPopup(point: LayerPoint) {
+  return `
+    <article class="report-popup-card">
+      <strong>${escapeHtml(point.title)}</strong>
+      <span>${escapeHtml(point.subtitle)}</span>
+      <div>
+        <button type="button">Helpful</button>
+        <button type="button">Confirm</button>
+      </div>
+    </article>
+  `
+}
+
+function getMoodFace(point: LayerPoint) {
+  if (point.severity === 'high') {
+    return '>:'
+  }
+
+  if (point.severity === 'medium') {
+    return ':o'
+  }
+
+  return ':)'
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
 }
 
 function getLayerInitial(layerId: LayerPoint['layerId']) {

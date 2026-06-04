@@ -129,7 +129,11 @@ function App() {
         onSelectPlace={handleSelectPlace}
       />
 
-      <LayerDock visibleLayerIds={visibleLayerIds} onToggleLayer={toggleLayer} />
+      <LayerDock
+        visibleLayerIds={visibleLayerIds}
+        onToggleLayer={toggleLayer}
+        onReportClick={() => setActiveView('report')}
+      />
 
       <BottomSheet
         activeRouteId={activeRouteId}

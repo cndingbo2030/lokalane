@@ -91,4 +91,14 @@ export const layerPoints: LayerPoint[] = [
     severity: 'medium',
     updatedAt: '2026-05-29T16:22:00+08:00',
   },
+  {
+    id: 'community-murai-quiet-queue',
+    layerId: 'community',
+    title: 'Murai local queue',
+    subtitle: 'Nearby residents report a short pickup queue and light foot traffic',
+    coordinates: { lat: 1.4048, lng: 103.7551 },
+    sourceId: 'community',
+    severity: 'low',
+    updatedAt: '2026-06-04T11:30:00+08:00',
+  },
 ]
