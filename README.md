@@ -102,3 +102,7 @@ Worker routes:
 - [API application pack](docs/api-application-pack.md)
 - [Store submission pack](docs/store-submission-pack.md)
 - [Roadmap](docs/roadmap.md)
+
+## Meeting Copilot
+
+[`meeting-copilot/`](meeting-copilot/README.md) is a separate package: an AI meeting assistant for Google Meet, Teams, Zoom and Tencent Meeting links that records, live-translates and suggests real-time replies. See its [architecture and plan](meeting-copilot/docs/PLAN.md).

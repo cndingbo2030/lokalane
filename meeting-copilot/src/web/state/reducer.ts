@@ -1,0 +1,141 @@
+import type { ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
+
+export type Phase = 'setup' | 'connecting' | 'live' | 'ended'
+
+export interface Suggestion {
+  id: string
+  trigger: SuggestionTrigger
+  text: string
+  done: boolean
+  error?: string
+}
+
+export interface AppState {
+  phase: Phase
+  sessionId?: string
+  stt?: string
+  llm?: string
+  segments: TranscriptSegment[]
+  translations: Record<string, string>
+  /** Newest first. */
+  suggestions: Suggestion[]
+  summary: { status: 'idle' | 'streaming' | 'done' | 'error'; text: string; error?: string }
+  errors: Array<{ id: number; message: string }>
+}
+
+export type Action =
+  | { type: 'server'; message: ServerMessage }
+  | { type: 'phase'; phase: Phase }
+  | { type: 'error'; message: string }
+  | { type: 'dismissError'; id: number }
+  | { type: 'reset' }
+
+export const initialState: AppState = {
+  phase: 'setup',
+  segments: [],
+  translations: {},
+  suggestions: [],
+  summary: { status: 'idle', text: '' },
+  errors: [],
+}
+
+let errorCounter = 0
+const MAX_SUGGESTIONS = 30
+
+export function reducer(state: AppState, action: Action): AppState {
+  switch (action.type) {
+    case 'phase':
+      return { ...state, phase: action.phase }
+    case 'reset':
+      return initialState
+    case 'error':
+      return addError(state, action.message)
+    case 'dismissError':
+      return { ...state, errors: state.errors.filter((e) => e.id !== action.id) }
+    case 'server':
+      return applyServerMessage(state, action.message)
+  }
+}
+
+function applyServerMessage(state: AppState, message: ServerMessage): AppState {
+  switch (message.type) {
+    case 'ready':
+      return {
+        ...state,
+        phase: state.phase === 'connecting' ? 'live' : state.phase,
+        sessionId: message.sessionId,
+        stt: message.stt,
+        llm: message.llm,
+      }
+    case 'transcript':
+      return { ...state, segments: upsertSegment(state.segments, message.segment) }
+    case 'translation':
+      return { ...state, translations: { ...state.translations, [message.segmentId]: message.text } }
+    case 'suggestion.start':
+      return {
+        ...state,
+        suggestions: [{ id: message.id, trigger: message.trigger, text: '', done: false }, ...state.suggestions].slice(0, MAX_SUGGESTIONS),
+      }
+    case 'suggestion.delta':
+      return updateSuggestion(state, message.id, (s) => ({ ...s, text: s.text + message.delta }))
+    case 'suggestion.done':
+      return updateSuggestion(state, message.id, (s) => ({ ...s, done: true, error: message.error }))
+    case 'summary.start':
+      return { ...state, summary: { status: 'streaming', text: '' } }
+    case 'summary.delta':
+      return { ...state, summary: { ...state.summary, text: state.summary.text + message.delta } }
+    case 'summary.done':
+      return {
+        ...state,
+        summary: message.error
+          ? { ...state.summary, status: 'error', error: message.error }
+          : { ...state.summary, status: 'done' },
+      }
+    case 'error':
+      return addError(state, message.message)
+    case 'pong':
+      return state
+  }
+}
+
+/** Partials share an id with their final; search from the end since updates are almost always recent. */
+export function upsertSegment(segments: TranscriptSegment[], segment: TranscriptSegment): TranscriptSegment[] {
+  for (let i = segments.length - 1; i >= Math.max(0, segments.length - 50); i--) {
+    if (segments[i].id === segment.id) {
+      const next = segments.slice()
+      next[i] = segment
+      return next
+    }
+  }
+  return [...segments, segment]
+}
+
+function updateSuggestion(state: AppState, id: string, update: (s: Suggestion) => Suggestion): AppState {
+  const index = state.suggestions.findIndex((s) => s.id === id)
+  if (index === -1) return state
+  const suggestions = state.suggestions.slice()
+  suggestions[index] = update(suggestions[index])
+  return { ...state, suggestions }
+}
+
+function addError(state: AppState, message: string): AppState {
+  // De-duplicate repeated provider errors and keep the list short.
+  if (state.errors.some((e) => e.message === message)) return state
+  return { ...state, errors: [...state.errors, { id: ++errorCounter, message }].slice(-3) }
+}
+
+export function transcriptToMarkdown(state: AppState): string {
+  const lines = state.segments
+    .filter((s) => s.isFinal)
+    .map((s) => {
+      const who = s.source === 'me' ? '我' : s.speaker ? `对方 ${s.speaker}` : '对方'
+      const translation = state.translations[s.id]
+      return `- **${who}** (${formatClock(s.startMs)}): ${s.text}${translation ? `\n  - _${translation}_` : ''}`
+    })
+  return `# 会议逐字稿\n\n${lines.join('\n')}\n`
+}
+
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}

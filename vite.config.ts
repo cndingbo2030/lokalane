@@ -2,7 +2,7 @@ import react from '@vitejs/plugin-react'
 import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -12,6 +12,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     globals: true,
+    // The meeting copilot is a separate package with its own toolchain and tests.
+    exclude: [...configDefaults.exclude, 'meeting-copilot/**'],
   },
 })
 
