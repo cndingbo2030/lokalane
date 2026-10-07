@@ -51,6 +51,36 @@ export function isAlreadyInLanguage(text: string, target: Exclude<LanguageCode, 
   return target === 'en' && guess === 'latin'
 }
 
+/** Normalizes STT language tags ("zh-CN", "EN_us", "cmn") to short codes. */
+export function normalizeLanguageTag(tag: string): string {
+  const base = tag.toLowerCase().split(/[-_]/)[0]
+  return base === 'cmn' || base === 'yue' ? 'zh' : base
+}
+
+export function languageName(code: string, style: 'native' | 'english' = 'english'): string {
+  const known = LANGUAGE_NAMES[code as keyof typeof LANGUAGE_NAMES]
+  return known ? known[style] : code
+}
+
+/**
+ * The language the user should answer in: the language of the line being
+ * answered, else of the other side's most recent line. Uses the STT engine's
+ * language tag when present and falls back to the script (Latin → English).
+ */
+export function detectReplyLanguage(
+  focus: { text: string; language?: string } | undefined,
+  recentRemote: ReadonlyArray<{ text: string; language?: string }>,
+): string | undefined {
+  for (const segment of [focus, ...[...recentRemote].reverse()]) {
+    if (!segment) continue
+    if (segment.language) return normalizeLanguageTag(segment.language)
+    const guess = guessLanguage(segment.text)
+    if (guess === 'latin') return 'en'
+    if (guess !== 'unknown') return guess
+  }
+  return undefined
+}
+
 /** Join two transcript fragments, inserting a space only between non-CJK words. */
 export function joinText(left: string, right: string): string {
   if (!left) return right

@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto'
-import type { AudioSource, ClientMessage, ServerMessage, SessionConfig, TranscriptSegment } from '../shared/protocol.ts'
-import { decodeAudioFrame } from '../shared/protocol.ts'
+import type {
+  AudioSource,
+  ClientMessage,
+  DocumentRef,
+  MetricsSnapshot,
+  ServerMessage,
+  SessionConfig,
+  TranscriptSegment,
+} from '../shared/protocol.ts'
+import { AUDIO_SAMPLE_RATE, decodeAudioFrame } from '../shared/protocol.ts'
+import { AudioClock } from '../shared/vad.ts'
 import { Copilot } from './ai/copilot.ts'
 import { briefBlock } from './ai/prompts.ts'
 import { streamSummary } from './ai/summarizer.ts'
 import { Translator } from './ai/translator.ts'
 import { playDemo } from './demo.ts'
+import { sanitizeDocuments } from './documents.ts'
 import type { LlmClient } from './llm/types.ts'
+import { SessionMetrics } from './metrics.ts'
 import type { SttProvider, SttResult, SttStream } from './stt/types.ts'
-import { TranscriptStore } from './transcript.ts'
+import { sanitizeSpeakerNames, TranscriptStore } from './transcript.ts'
 import { TriggerDetector } from './triggers.ts'
 
 export interface SessionDeps {
@@ -17,6 +28,11 @@ export interface SessionDeps {
   llm: LlmClient
   models: { copilot: string; translate: string; summary: string }
   log?: (message: string, extra?: unknown) => void
+  /** Receives the final metrics when the session closes (for structured logs). */
+  onClosed?: (sessionId: string, metrics: MetricsSnapshot) => void
+  /** How often changed metrics are pushed to the client; 0 disables the timer. */
+  metricsIntervalMs?: number
+  now?: () => number
 }
 
 /**
@@ -27,22 +43,38 @@ export interface SessionDeps {
  *                                 |-> Translator (finals, not in target language)
  *                                 |-> TriggerDetector -> Copilot (remote questions/objections)
  *                                 '-> TranscriptStore -> Summary (on demand)
+ *
+ * Audio may arrive with gaps (client-side VAD), so each source has an AudioClock
+ * that maps STT timestamps back to meeting time.
  */
 export class MeetingSession {
   readonly id = randomUUID()
   private readonly shortId = this.id.slice(0, 8)
+  private readonly now: () => number
   private config: SessionConfig | null = null
+  private documents: DocumentRef[] = []
+  private speakerNames: Record<string, string> = {}
+  private startedAt = 0
   private readonly streams = new Map<AudioSource, SttStream>()
+  private readonly clocks: Record<AudioSource, AudioClock> = { me: new AudioClock(), remote: new AudioClock() }
   private readonly counters: Record<AudioSource, number> = { me: 0, remote: 0 }
+  private readonly finalizedAt = new Map<string, number>()
   private readonly transcript = new TranscriptStore()
-  private readonly triggers = new TriggerDetector()
+  private readonly triggers: TriggerDetector
+  private readonly metrics: SessionMetrics
   private translator: Translator | null = null
   private copilot: Copilot | null = null
   private demoController: AbortController | null = null
   private summaryController: AbortController | null = null
+  private metricsTimer: ReturnType<typeof setInterval> | undefined
+  private sentRevision = -1
   private closed = false
 
-  constructor(private readonly deps: SessionDeps) {}
+  constructor(private readonly deps: SessionDeps) {
+    this.now = deps.now ?? Date.now
+    this.metrics = new SessionMetrics(this.now)
+    this.triggers = new TriggerDetector(6_000, this.now)
+  }
 
   handleMessage(message: ClientMessage): void {
     switch (message.type) {
@@ -52,6 +84,15 @@ export class MeetingSession {
       case 'ask':
         this.ask(message.question)
         break
+      case 'speakers':
+        this.speakerNames = sanitizeSpeakerNames(message.names)
+        break
+      case 'feedback':
+        if (typeof message.suggestionId === 'string' && message.suggestionId.startsWith(`${this.shortId}-`) && message.suggestionId.length <= 64) {
+          this.metrics.rate(message.suggestionId, message.rating === 'up' || message.rating === 'down' ? message.rating : null)
+          this.pushMetrics()
+        }
+        break
       case 'summary':
         void this.summarize()
         break
@@ -59,7 +100,7 @@ export class MeetingSession {
         this.runDemo()
         break
       case 'stop':
-        void this.stopAudio()
+        void this.stopAudio().then(() => this.pushMetrics())
         break
       case 'ping':
         this.deps.send({ type: 'pong' })
@@ -71,17 +112,22 @@ export class MeetingSession {
     if (!this.config || this.closed) return
     const decoded = decodeAudioFrame(frame)
     if (!decoded) return
+    const durationMs = (decoded.pcm.byteLength / 2 / AUDIO_SAMPLE_RATE) * 1000
+    this.clocks[decoded.source].record(this.now() - this.startedAt, durationMs)
+    this.metrics.addAudio(decoded.source, durationMs)
     this.streamFor(decoded.source).write(decoded.pcm)
   }
 
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    clearInterval(this.metricsTimer)
     this.demoController?.abort()
     this.summaryController?.abort()
     this.translator?.stop()
     this.copilot?.stop()
     await this.stopAudio()
+    if (this.config) this.deps.onClosed?.(this.id, this.metrics.snapshot())
   }
 
   /** Test helper: wait for in-flight AI work. */
@@ -89,45 +135,74 @@ export class MeetingSession {
     await Promise.all([this.translator?.idle(), this.copilot?.idle()])
   }
 
+  metricsSnapshot(): MetricsSnapshot {
+    return this.metrics.snapshot()
+  }
+
   private start(config: SessionConfig): void {
     if (this.config) {
       // A restart (e.g. reconnect) keeps the transcript but applies the new settings.
       this.translator?.stop()
       this.copilot?.stop()
+    } else {
+      this.startedAt = this.now()
     }
     this.config = config
+    this.documents = sanitizeDocuments(config.documents)
     const cachedContext = briefBlock(config.brief)
+    const names = () => this.speakerNames
 
     this.translator = config.translate
       ? new Translator({
-          llm: this.deps.llm,
+          llm: this.metrics.meter(this.deps.llm, 'translate'),
           model: this.deps.models.translate,
           target: config.targetLanguage,
           transcript: this.transcript,
           cachedContext,
-          onTranslation: (segmentId, text) =>
-            this.deps.send({ type: 'translation', segmentId, text, targetLanguage: config.targetLanguage }),
+          speakerNames: names,
+          onTranslation: (segmentId, text) => {
+            const finalAt = this.finalizedAt.get(segmentId)
+            if (finalAt !== undefined) this.metrics.addTranslationLatency(this.now() - finalAt)
+            this.finalizedAt.delete(segmentId)
+            this.deps.send({ type: 'translation', segmentId, text, targetLanguage: config.targetLanguage })
+          },
           onError: (error) => this.reportError('翻译失败', error),
         })
       : null
 
     this.copilot = config.copilot.enabled
       ? new Copilot({
-          llm: this.deps.llm,
+          llm: this.metrics.meter(this.deps.llm, 'copilot'),
           model: this.deps.models.copilot,
           target: config.targetLanguage,
           transcript: this.transcript,
           cachedContext,
+          documents: this.documents,
+          speakerNames: names,
           idPrefix: this.shortId,
           events: {
-            start: (id, trigger) => this.deps.send({ type: 'suggestion.start', id, trigger }),
+            start: (id, trigger, waitedMs) => {
+              this.metrics.suggestionShown(waitedMs)
+              this.deps.send({ type: 'suggestion.start', id, trigger })
+            },
             delta: (id, delta) => this.deps.send({ type: 'suggestion.delta', id, delta }),
             done: (id, error) => this.deps.send({ type: 'suggestion.done', id, error }),
+            skipped: () => this.metrics.suggestionSkipped(),
           },
         })
       : null
 
     this.deps.send({ type: 'ready', sessionId: this.id, stt: this.deps.stt.name, llm: this.deps.llm.name })
+
+    clearInterval(this.metricsTimer)
+    const interval = this.deps.metricsIntervalMs ?? 2_000
+    if (interval > 0) this.metricsTimer = setInterval(() => this.pushMetrics(), interval)
+  }
+
+  private pushMetrics(): void {
+    if (this.closed || !this.config || this.metrics.revision === this.sentRevision) return
+    this.sentRevision = this.metrics.revision
+    this.deps.send({ type: 'metrics', metrics: this.metrics.snapshot() })
   }
 
   private streamFor(source: AudioSource): SttStream {
@@ -138,12 +213,17 @@ export class MeetingSession {
         languages: this.config?.spokenLanguages ?? ['auto'],
         // Diarize only the meeting audio; the microphone is always the user.
         diarize: source === 'remote',
-        onResult: (result) => this.onSttResult(source, result),
+        onResult: (result) => this.onSttResult(source, this.toMeetingTime(source, result)),
         onError: (error) => this.reportError(`语音识别出错 (${source})`, error),
       })
       this.streams.set(source, stream)
     }
     return stream
+  }
+
+  private toMeetingTime(source: AudioSource, result: SttResult): SttResult {
+    const clock = this.clocks[source]
+    return { ...result, startMs: clock.toWall(result.startMs), endMs: clock.toWall(result.endMs) }
   }
 
   private async stopAudio(): Promise<void> {
@@ -152,7 +232,7 @@ export class MeetingSession {
     await Promise.allSettled(streams.map((s) => s.close()))
   }
 
-  /** Exposed for the demo and tests: feed a normalized STT result. */
+  /** Feed a normalized STT result (timestamps already in meeting time). Used by the demo and tests. */
   onSttResult(source: AudioSource, result: SttResult): void {
     if (this.closed) return
     const segment: TranscriptSegment = {
@@ -169,11 +249,18 @@ export class MeetingSession {
     this.deps.send({ type: 'transcript', segment })
     if (!segment.isFinal) return
 
+    this.metrics.addFinal(source)
     this.transcript.addFinal(segment)
-    this.translator?.enqueue(segment)
+    if (this.translator) {
+      this.finalizedAt.set(segment.id, this.now())
+      this.translator.enqueue(segment)
+    }
     if (this.config?.copilot.enabled && this.config.copilot.autoTrigger) {
       const decision = this.triggers.evaluate(segment)
-      if (decision) this.copilot?.trigger({ kind: decision.kind, segmentId: segment.id, text: segment.text })
+      if (decision) {
+        this.metrics.suggestionTriggered()
+        this.copilot?.trigger({ kind: decision.kind, segmentId: segment.id, text: segment.text })
+      }
     }
   }
 
@@ -183,6 +270,7 @@ export class MeetingSession {
       return
     }
     const last = this.transcript.recent(60_000).filter((s) => s.source === 'remote').at(-1)
+    this.metrics.suggestionTriggered()
     this.copilot.trigger({ kind: 'manual', segmentId: last?.id, text: question?.trim() || last?.text || '' }, question?.trim() || undefined)
   }
 
@@ -194,11 +282,13 @@ export class MeetingSession {
     this.deps.send({ type: 'summary.start' })
     try {
       await streamSummary({
-        llm: this.deps.llm,
+        llm: this.metrics.meter(this.deps.llm, 'summary'),
         model: this.deps.models.summary,
         target: this.config.targetLanguage,
         transcript: this.transcript,
         cachedContext: briefBlock(this.config.brief),
+        documents: this.documents,
+        speakerNames: this.speakerNames,
         signal: controller.signal,
         onDelta: (delta) => this.deps.send({ type: 'summary.delta', delta }),
       })
@@ -206,6 +296,7 @@ export class MeetingSession {
     } catch (error) {
       if (!controller.signal.aborted) this.deps.send({ type: 'summary.done', error: errorMessage(error) })
     }
+    this.pushMetrics()
   }
 
   private runDemo(): void {
@@ -218,6 +309,7 @@ export class MeetingSession {
 
   private reportError(context: string, error: unknown): void {
     const message = `${context}: ${errorMessage(error)}`
+    this.metrics.addError()
     this.deps.log?.(message, error)
     this.deps.send({ type: 'error', message, recoverable: true })
   }

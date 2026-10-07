@@ -31,6 +31,15 @@ export interface MeetingBrief {
   context: string
 }
 
+/** A knowledge document attached to the meeting (pricing sheet, product manual…). */
+export interface DocumentRef {
+  /** Anthropic Files API id (or a local id in mock mode). */
+  id: string
+  name: string
+  kind: 'pdf' | 'text'
+  sizeBytes: number
+}
+
 export interface SessionConfig {
   meetingUrl?: string
   platform: MeetingPlatform
@@ -45,6 +54,8 @@ export interface SessionConfig {
     autoTrigger: boolean
   }
   brief: MeetingBrief
+  /** Documents the copilot and summary may ground answers in (not sent to the translator). */
+  documents?: DocumentRef[]
 }
 
 export interface TranscriptSegment {
@@ -67,11 +78,18 @@ export interface SuggestionTrigger {
   kind: SuggestionKind
   segmentId?: string
   text: string
+  /** Language the suggested reply is written in (the other side's language), e.g. "en". */
+  replyLanguage?: string
 }
+
+export type FeedbackRating = 'up' | 'down'
 
 export type ClientMessage =
   | { type: 'start'; config: SessionConfig }
   | { type: 'ask'; question?: string }
+  /** Display names for diarized speakers, e.g. { S1: '王总' }. */
+  | { type: 'speakers'; names: Record<string, string> }
+  | { type: 'feedback'; suggestionId: string; rating: FeedbackRating | null }
   | { type: 'summary' }
   | { type: 'demo' }
   | { type: 'stop' }
@@ -87,8 +105,44 @@ export type ServerMessage =
   | { type: 'summary.start' }
   | { type: 'summary.delta'; delta: string }
   | { type: 'summary.done'; error?: string }
+  | { type: 'metrics'; metrics: MetricsSnapshot }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'pong' }
+
+export interface LatencyStats {
+  count: number
+  p50: number | null
+  p95: number | null
+}
+
+export type LlmRole = 'translate' | 'copilot' | 'summary'
+
+export interface RoleMetrics {
+  calls: number
+  errors: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  costUsd: number
+  /** Request start → first streamed token. */
+  ttftMs: LatencyStats
+}
+
+export interface MetricsSnapshot {
+  /** Audio actually forwarded to STT (after client-side VAD), per source. */
+  audioSentSeconds: Record<AudioSource, number>
+  finalSegments: Record<AudioSource, number>
+  /** Final segment → translation shown. */
+  translationLatencyMs: LatencyStats
+  /** Trigger (end of the other side's sentence) → first visible suggestion token. */
+  suggestionLatencyMs: LatencyStats
+  llm: Record<LlmRole, RoleMetrics>
+  suggestions: { triggered: number; shown: number; skipped: number; up: number; down: number }
+  errors: number
+  /** Estimated Claude spend for this meeting (list prices, excludes STT). */
+  costUsd: number
+}
 
 export function encodeAudioFrame(source: AudioSource, pcm: Int16Array): ArrayBuffer {
   const out = new Uint8Array(1 + pcm.byteLength)

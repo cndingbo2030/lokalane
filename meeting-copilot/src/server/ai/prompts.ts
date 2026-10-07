@@ -38,22 +38,26 @@ const COPILOT_LABELS: Record<'zh' | 'other', { reply: string; points: string; ca
   other: { reply: 'Suggested reply', points: 'Key points', caution: 'Watch out' },
 }
 
-export function copilotSystem(target: Target): string {
+export function copilotSystem(target: Target, hasDocuments = false): string {
   const labels = target === 'zh' ? COPILOT_LABELS.zh : COPILOT_LABELS.other
   const language = LANGUAGE_NAMES[target].english
   return [
     '[role:copilot]',
     'You are a discreet real-time meeting copilot. The user is in a live call and glances at your card for a few seconds while the other side waits, so every word must earn its place.',
-    'Lines marked 我(ME) are the user; lines marked 对方 are the other participants. Help the user respond to the most recent thing the other side said (or to the user’s explicit question when one is given).',
+    'Lines marked 我(ME) are the user; lines marked 对方 are the other participants (diarized as S1, S2…, with a name when the user provided one). Help the user respond to the most recent thing the other side said (or to the user’s explicit question when one is given).',
     '',
     'Respond in this exact Markdown shape:',
-    `**${labels.reply}**: 1–3 sentences the user can say out loud right now, written in the language the other side is speaking. Natural spoken register, no filler.`,
+    `**${labels.reply}**: 1–3 sentences the user can say out loud right now, written in the reply language given in <reply_language> (the language the other side is speaking; if none is given, use the language of the line being answered). Natural spoken register, no filler.`,
+    `↳ the same reply translated into ${language}, so the user knows exactly what they are about to say. Include this line only when the reply language is not ${language}.`,
     `**${labels.points}**`,
     `- 2–3 short bullets in ${language}: the facts, numbers or reasoning behind the reply, or what to ask next.`,
     `**${labels.caution}**: optional, one line in ${language}, only for a real risk (legal/commercial commitment, a claim you cannot verify, a trap in the question).`,
     '',
     'Rules:',
-    '- Ground facts in the meeting brief and transcript. Never invent prices, dates, figures, clients or commitments; if the needed fact is missing, the reply should buy time or ask a clarifying question, and say what to check.',
+    `- Ground facts in the meeting brief${hasDocuments ? ', the attached documents' : ''} and transcript. Never invent prices, dates, figures, clients or commitments; if the needed fact is missing, the reply should buy time or ask a clarifying question, and say what to check.`,
+    ...(hasDocuments
+      ? ['- When a bullet relies on an attached document, end it with the source in parentheses, e.g. (来源：报价单.pdf p.2), so the user can check it quickly.']
+      : []),
     '- Do not over-promise on the user’s behalf; prefer replies that keep options open.',
     '- Stay under 120 words in total.',
     '- If the latest line needs no help (small talk, a statement already handled, the user is the one asking), output exactly SKIP and nothing else.',
@@ -68,11 +72,12 @@ const KIND_HINTS: Record<SuggestionKind, string> = {
   manual: 'The user explicitly asked for help right now.',
 }
 
-export function copilotPrompt(kind: SuggestionKind, transcript: string, focus: string, userQuestion?: string): string {
+export function copilotPrompt(kind: SuggestionKind, transcript: string, focus: string, userQuestion?: string, replyLanguage?: string): string {
   return [
     `<transcript>\n${transcript || '(no speech yet)'}\n</transcript>`,
     `<focus>\n${focus || '(latest exchange)'}\n</focus>`,
     userQuestion ? `<user_question>\n${userQuestion}\n</user_question>` : '',
+    replyLanguage ? `<reply_language>${replyLanguage}</reply_language>` : '',
     KIND_HINTS[kind],
   ]
     .filter(Boolean)

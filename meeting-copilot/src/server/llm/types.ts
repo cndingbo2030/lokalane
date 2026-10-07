@@ -1,4 +1,13 @@
+import type { DocumentRef } from '../../shared/protocol.ts'
+
 export type Effort = 'low' | 'medium' | 'high'
+
+export interface LlmUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
 
 export interface LlmTextRequest {
   model: string
@@ -9,11 +18,18 @@ export interface LlmTextRequest {
    * cache breakpoint so repeated calls in one meeting reuse the cached prefix.
    */
   cachedContext?: string
+  /**
+   * Knowledge documents, sent ahead of the prompt with their own cache breakpoint:
+   * for a handful of per-meeting files, long context + caching beats building RAG.
+   */
+  documents?: DocumentRef[]
   /** The volatile part: recent transcript + the task for this call. */
   prompt: string
   maxTokens: number
   effort: Effort
   signal?: AbortSignal
+  /** Called once with token usage when the response completes. */
+  onUsage?: (usage: LlmUsage) => void
 }
 
 /** Minimal streaming-text interface so the pipeline can run against Claude or a mock. */

@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { parseMeetingLink } from '../shared/meetingLink.ts'
-import { encodeAudioFrame, type AudioSource, type SessionConfig } from '../shared/protocol.ts'
+import { encodeAudioFrame, type AudioSource, type FeedbackRating, type MeetingPlatform, type SessionConfig } from '../shared/protocol.ts'
 import { AudioEngine, CaptureError } from './audio/engine.ts'
 import { CopilotPane } from './components/CopilotPane.tsx'
+import { HistoryPanel, MeetingViewer } from './components/HistoryPanel.tsx'
 import { Markdown } from './components/Markdown.tsx'
+import { MetricsBar } from './components/MetricsBar.tsx'
 import { defaultForm, SetupPanel, type SetupForm } from './components/SetupPanel.tsx'
 import { TranscriptPane } from './components/TranscriptPane.tsx'
+import { meetingHistory } from './history/db.ts'
+import { buildRecord, type MeetingRecord } from './history/model.ts'
 import { CopilotConnection, serverUrl, type ConnectionStatus } from './net/connection.ts'
 import { initialState, reducer, transcriptToMarkdown } from './state/reducer.ts'
 
@@ -34,15 +38,23 @@ function saveForm(form: SetupForm): void {
   }
 }
 
+interface MeetingMeta {
+  platform: MeetingPlatform
+  startedAt: number
+  endedAt?: number
+  demo: boolean
+}
+
 export function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const [form, setForm] = useState<SetupForm>(loadForm)
   const [connection, setConnection] = useState<ConnectionStatus>('closed')
   const [levels, setLevels] = useState<Record<AudioSource, number>>({ me: 0, remote: 0 })
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
-  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [meeting, setMeeting] = useState<MeetingMeta | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const [demo, setDemo] = useState(false)
+  const [history, setHistory] = useState<MeetingRecord[]>([])
+  const [viewing, setViewing] = useState<MeetingRecord | null>(null)
 
   const connectionRef = useRef<CopilotConnection | null>(null)
   const engineRef = useRef<AudioEngine | null>(null)
@@ -51,6 +63,13 @@ export function App() {
   const parsed = useMemo(() => parseMeetingLink(form.link), [form.link])
 
   useEffect(() => saveForm(form), [form])
+
+  useEffect(() => {
+    meetingHistory
+      .list()
+      .then(setHistory)
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (state.phase !== 'live') return
@@ -74,6 +93,26 @@ export function App() {
     }
   }, [recordingUrl])
 
+  // Save the finished meeting locally; re-save as the summary and feedback arrive.
+  useEffect(() => {
+    if (state.phase !== 'ended' || !meeting?.endedAt || !form.saveHistory || !state.sessionId) return
+    if (!state.segments.some((s) => s.isFinal)) return
+    const record = buildRecord(state, {
+      id: state.sessionId,
+      platform: meeting.platform,
+      startedAt: meeting.startedAt,
+      endedAt: meeting.endedAt,
+      targetLanguage: form.targetLanguage,
+    }, { demo: meeting.demo })
+    const timer = window.setTimeout(() => {
+      meetingHistory
+        .save(record)
+        .then(() => setHistory((h) => [record, ...h.filter((r) => r.id !== record.id)]))
+        .catch(() => {})
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [state, meeting, form.saveHistory, form.targetLanguage])
+
   const buildConfig = (): SessionConfig => ({
     meetingUrl: parsed?.url,
     platform: parsed?.platform ?? 'unknown',
@@ -82,6 +121,7 @@ export function App() {
     translate: form.translate,
     copilot: { enabled: form.copilot, autoTrigger: form.autoTrigger },
     brief: { myRole: form.myRole, goal: form.goal, context: form.context },
+    documents: form.documents,
   })
 
   const openConnection = (config: SessionConfig, onOpen?: () => void) => {
@@ -101,15 +141,18 @@ export function App() {
     return conn
   }
 
-  const start = async () => {
+  const beginMeeting = (demo: boolean) => {
     dispatch({ type: 'reset' })
     dispatch({ type: 'phase', phase: 'connecting' })
     setRecordingUrl(null)
-    setDemo(false)
+    setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo })
+  }
 
+  const start = async () => {
+    beginMeeting(false)
     const engine = new AudioEngine()
     try {
-      // Ask for capture first: the browser picker must be opened from the click gesture.
+      // Open the connection first, synchronously: the capture picker must open from the click gesture.
       const conn = openConnection(buildConfig())
       await engine.start(
         form.mode,
@@ -120,26 +163,23 @@ export function App() {
           },
           onEnded: () => void stop(),
         },
-        form.record,
+        { record: form.record, vad: form.vad },
       )
       engineRef.current = engine
-      setStartedAt(timestamp())
+      setMeeting((m) => (m ? { ...m, startedAt: timestamp() } : m))
     } catch (error) {
       connectionRef.current?.close()
       connectionRef.current = null
       await engine.stop()
+      setMeeting(null)
       dispatch({ type: 'phase', phase: 'setup' })
       dispatch({ type: 'error', message: error instanceof CaptureError ? error.message : `无法开始：${String(error)}` })
     }
   }
 
   const startDemo = () => {
-    dispatch({ type: 'reset' })
-    dispatch({ type: 'phase', phase: 'connecting' })
-    setRecordingUrl(null)
-    setDemo(true)
-    setStartedAt(timestamp())
-    openConnection({ ...buildConfig(), platform: 'unknown' }, () => connectionRef.current?.send({ type: 'demo' }))
+    beginMeeting(true)
+    openConnection(buildConfig(), () => connectionRef.current?.send({ type: 'demo' }))
   }
 
   const stop = async () => {
@@ -147,6 +187,7 @@ export function App() {
     engineRef.current = null
     connectionRef.current?.send({ type: 'stop' })
     dispatch({ type: 'phase', phase: 'ended' })
+    setMeeting((m) => (m ? { ...m, endedAt: timestamp() } : m))
     if (engine) {
       const blob = await engine.stop()
       if (blob && blob.size > 0) setRecordingUrl(URL.createObjectURL(blob))
@@ -156,10 +197,23 @@ export function App() {
   const newMeeting = () => {
     connectionRef.current?.close()
     connectionRef.current = null
-    setStartedAt(null)
+    setMeeting(null)
     setRecordingUrl(null)
     setForm((f) => ({ ...f, consent: false, link: '' }))
     dispatch({ type: 'reset' })
+  }
+
+  const renameSpeaker = (speaker: string, name: string) => {
+    const names = { ...state.speakerNames }
+    if (name.trim()) names[speaker] = name.trim()
+    else delete names[speaker]
+    dispatch({ type: 'renameSpeaker', speaker, name })
+    connectionRef.current?.send({ type: 'speakers', names })
+  }
+
+  const rate = (id: string, rating: FeedbackRating | null) => {
+    dispatch({ type: 'rate', id, rating })
+    connectionRef.current?.send({ type: 'feedback', suggestionId: id, rating })
   }
 
   const downloadTranscript = () => {
@@ -174,8 +228,15 @@ export function App() {
     URL.revokeObjectURL(url)
   }
 
+  const deleteRecord = (record: MeetingRecord) => {
+    setViewing(null)
+    setHistory((h) => h.filter((r) => r.id !== record.id))
+    meetingHistory.remove(record.id).catch(() => {})
+  }
+
   const inMeeting = state.phase === 'connecting' || state.phase === 'live' || state.phase === 'ended'
-  const elapsed = startedAt ? Math.floor((now - startedAt) / 1000) : 0
+  const elapsed = meeting ? Math.max(0, Math.floor(((meeting.endedAt ?? now) - meeting.startedAt) / 1000)) : 0
+  const demo = meeting?.demo ?? false
 
   return (
     <div className="app">
@@ -217,19 +278,27 @@ export function App() {
         </div>
       )}
 
-      {!inMeeting && (
-        <SetupPanel form={form} onChange={setForm} parsed={parsed} busy={false} onStart={() => void start()} onDemo={startDemo} />
+      {!inMeeting && viewing && <MeetingViewer record={viewing} onClose={() => setViewing(null)} onDelete={deleteRecord} />}
+
+      {!inMeeting && !viewing && (
+        <>
+          <SetupPanel form={form} onChange={setForm} parsed={parsed} busy={false} onStart={() => void start()} onDemo={startDemo} />
+          <HistoryPanel records={history} onOpen={setViewing} />
+        </>
       )}
 
       {inMeeting && (
         <main className="live">
           <div className="controls card">
-            {!demo && state.phase === 'live' && (
-              <div className="meters">
-                {form.mode === 'tab' && <Meter label="我" level={levels.me} />}
-                <Meter label={form.mode === 'tab' ? '会议' : '现场'} level={levels.remote} />
-              </div>
-            )}
+            <div className="controls-left">
+              {!demo && state.phase === 'live' && (
+                <div className="meters">
+                  {form.mode === 'tab' && <Meter label="我" level={levels.me} />}
+                  <Meter label={form.mode === 'tab' ? '会议' : '现场'} level={levels.remote} />
+                </div>
+              )}
+              <MetricsBar metrics={state.metrics} elapsedSeconds={elapsed} />
+            </div>
             <div className="actions">
               {state.phase !== 'ended' ? (
                 <button type="button" className="button danger" onClick={() => void stop()}>
@@ -260,12 +329,13 @@ export function App() {
           </div>
 
           <div className="panes">
-            <TranscriptPane segments={state.segments} translations={state.translations} />
+            <TranscriptPane segments={state.segments} translations={state.translations} speakerNames={state.speakerNames} onRename={renameSpeaker} />
             <CopilotPane
               suggestions={state.suggestions}
               enabled={form.copilot}
               canAsk={state.phase !== 'connecting' && Boolean(state.sessionId)}
               onAsk={(question) => connectionRef.current?.send({ type: 'ask', question })}
+              onRate={rate}
             />
           </div>
 

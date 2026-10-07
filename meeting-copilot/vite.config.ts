@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/ws': { target: `ws://localhost:${serverPort}`, ws: true },
       '/health': `http://localhost:${serverPort}`,
+      '/api': `http://localhost:${serverPort}`,
     },
   },
   build: {

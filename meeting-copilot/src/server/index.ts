@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { WebSocketServer, type RawData } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts'
 import { loadConfig, loadDotEnv } from './config.ts'
+import { AnthropicDocumentStore, DocumentError, MAX_DOCUMENT_BYTES, MemoryDocumentStore, type DocumentStore } from './documents.ts'
 import { AnthropicLlm } from './llm/anthropic.ts'
 import { MockLlm } from './llm/mock.ts'
 import type { LlmClient } from './llm/types.ts'
@@ -14,6 +15,7 @@ loadDotEnv()
 const config = loadConfig()
 const stt = createSttProvider(config)
 const llm: LlmClient = config.anthropicConfigured ? new AnthropicLlm() : new MockLlm()
+const documents: DocumentStore = config.anthropicConfigured ? new AnthropicDocumentStore() : new MemoryDocumentStore()
 const distDir = resolve('dist')
 
 const MIME: Record<string, string> = {
@@ -32,9 +34,14 @@ const server = createServer((req, res) => {
       ok: true,
       stt: stt.name,
       llm: llm.name,
+      documents: documents.name,
       models: config.models,
       auth: Boolean(config.accessToken),
     })
+  }
+  if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/')) {
+    void handleDocuments(req, res, url)
+    return
   }
   if (config.production) return serveStatic(url.pathname, res)
   res.writeHead(404).end('Not found (run `npm run dev:web` for the UI in development)')
@@ -63,6 +70,8 @@ wss.on('connection', (ws) => {
     llm,
     models: config.models,
     log: (message, extra) => console.warn(`[session] ${message}`, extra instanceof Error ? extra.message : ''),
+    // One structured line per meeting: latency, usage, cost and feedback (no transcript content).
+    onClosed: (sessionId, metrics) => console.log(JSON.stringify({ event: 'meeting.closed', sessionId, metrics })),
   })
 
   ws.on('message', (data: RawData, isBinary) => {
@@ -103,14 +112,54 @@ function isAllowed(req: IncomingMessage, url: URL): boolean {
   }
 }
 
+async function handleDocuments(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (!isAllowed(req, url)) return sendJson(res, { error: 'forbidden' }, 403)
+  try {
+    if (req.method === 'POST' && url.pathname === '/api/documents') {
+      const filename = decodeURIComponent(String(req.headers['x-filename'] ?? 'document')).slice(0, 200)
+      const body = await readBody(req, MAX_DOCUMENT_BYTES)
+      const ref = await documents.upload(filename, String(req.headers['content-type'] ?? ''), body)
+      return sendJson(res, ref, 201)
+    }
+    const id = url.pathname.slice('/api/documents/'.length)
+    if (req.method === 'DELETE' && /^[\w-]{1,128}$/.test(id)) {
+      await documents.delete(id)
+      return sendJson(res, { ok: true })
+    }
+    sendJson(res, { error: 'not found' }, 404)
+  } catch (error) {
+    if (error instanceof DocumentError) return sendJson(res, { error: error.message }, error.status)
+    console.error('[documents]', error)
+    sendJson(res, { error: '文件上传失败，请稍后重试' }, 502)
+  }
+}
+
+function readBody(req: IncomingMessage, limit: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > limit) {
+        reject(new DocumentError('文件超过 32 MB', 413))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(new Uint8Array(Buffer.concat(chunks))))
+    req.on('error', reject)
+  })
+}
+
 function toUint8(data: RawData): Uint8Array {
   if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data))
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
   return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
 }
 
-function sendJson(res: ServerResponse, body: unknown): void {
-  res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+function sendJson(res: ServerResponse, body: unknown, status = 200): void {
+  res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
 }
 
 function serveStatic(pathname: string, res: ServerResponse): void {

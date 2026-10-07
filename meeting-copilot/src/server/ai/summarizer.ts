@@ -1,6 +1,6 @@
-import type { LanguageCode } from '../../shared/protocol.ts'
+import type { DocumentRef, LanguageCode } from '../../shared/protocol.ts'
 import type { LlmClient } from '../llm/types.ts'
-import { formatTranscript, type TranscriptStore } from '../transcript.ts'
+import { formatTranscript, type SpeakerNames, type TranscriptStore } from '../transcript.ts'
 import { summaryPrompt, summarySystem } from './prompts.ts'
 
 export async function streamSummary(options: {
@@ -9,6 +9,8 @@ export async function streamSummary(options: {
   target: Exclude<LanguageCode, 'auto'>
   transcript: TranscriptStore
   cachedContext?: string
+  documents?: DocumentRef[]
+  speakerNames?: SpeakerNames
   signal?: AbortSignal
   onDelta: (delta: string) => void
 }): Promise<void> {
@@ -16,7 +18,8 @@ export async function streamSummary(options: {
     model: options.model,
     system: summarySystem(options.target),
     cachedContext: options.cachedContext,
-    prompt: summaryPrompt(formatTranscript(options.transcript.all())),
+    documents: options.documents,
+    prompt: summaryPrompt(formatTranscript(options.transcript.all(), options.speakerNames)),
     maxTokens: 16_000,
     effort: 'medium',
     signal: options.signal,

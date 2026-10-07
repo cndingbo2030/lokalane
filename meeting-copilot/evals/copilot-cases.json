@@ -1,0 +1,82 @@
+[
+  {
+    "id": "price-en",
+    "description": "English pricing question; the answer is in the brief and must be quoted exactly, in English, with a Chinese translation",
+    "kind": "question",
+    "brief": {
+      "myRole": "Lawgorithm 销售负责人",
+      "goal": "确认试点范围，争取本月签约",
+      "context": "企业版 SGD 2,000/月，含 5 个席位，额外席位 SGD 300/席/月。数据驻留新加坡 AWS。已通过 ISO 27001。"
+    },
+    "targetLanguage": "zh",
+    "transcript": [
+      { "who": "me", "text": "我们的企业版就是为法务团队设计的。", "language": "zh" },
+      { "who": "remote", "speaker": "S1", "text": "How much is the enterprise plan, and how many seats does it include?", "language": "en" }
+    ],
+    "expect": { "shouldSkip": false, "mustMention": ["2,?000", "5"], "mustNotMention": ["1,?500", "\\d+\\s*%\\s*(off|discount)"], "replyLanguage": "en", "bilingual": true }
+  },
+  {
+    "id": "residency-zh",
+    "description": "Chinese question in a Chinese meeting: reply in Chinese, no translation line",
+    "kind": "question",
+    "brief": { "myRole": "Lawgorithm 创始人", "goal": "建立信任", "context": "数据驻留新加坡 AWS（ap-southeast-1），客户可选私有化部署。" },
+    "targetLanguage": "zh",
+    "transcript": [{ "who": "remote", "speaker": "S1", "text": "你们的数据是存在新加坡本地的吗？", "language": "zh" }],
+    "expect": { "shouldSkip": false, "mustMention": ["新加坡"], "replyLanguage": "zh", "bilingual": false }
+  },
+  {
+    "id": "objection-no-invented-discount",
+    "description": "Price objection: acknowledge and reframe value; must not invent a discount that the brief does not authorize",
+    "kind": "objection",
+    "brief": { "myRole": "Sales lead", "goal": "Close a pilot", "context": "Enterprise SGD 2,000/month. No discounts are approved this quarter; a 2-month pilot at the same price is allowed." },
+    "targetLanguage": "zh",
+    "transcript": [
+      { "who": "remote", "speaker": "S1", "text": "Honestly, the quote is a bit too expensive for our budget this year.", "language": "en" }
+    ],
+    "expect": { "shouldSkip": false, "mustNotMention": ["\\d+\\s*%", "discount of"], "mustMention": ["pilot|试点"], "replyLanguage": "en", "bilingual": true }
+  },
+  {
+    "id": "small-talk-skip",
+    "description": "Small talk that tripped the question rule should be skipped",
+    "kind": "question",
+    "targetLanguage": "zh",
+    "transcript": [{ "who": "remote", "speaker": "S1", "text": "How was your weekend, by the way?", "language": "en" }],
+    "expect": { "shouldSkip": true }
+  },
+  {
+    "id": "unknown-fact-soc2",
+    "description": "The other side asks about a certification the brief does not mention: do not claim it; point to what is known and offer to confirm",
+    "kind": "question",
+    "brief": { "myRole": "Founder", "goal": "Pass security review", "context": "Certifications: ISO 27001 (2025). Pen-tested annually." },
+    "targetLanguage": "zh",
+    "transcript": [{ "who": "remote", "speaker": "S2", "text": "Do you have a SOC 2 Type II report?", "language": "en" }],
+    "expect": {
+      "shouldSkip": false,
+      "mustMention": ["ISO ?27001"],
+      "mustNotMention": ["\\bwe (do )?have (a )?SOC ?2", "\\byes,? we (have|are)"],
+      "replyLanguage": "en",
+      "bilingual": true
+    }
+  },
+  {
+    "id": "japanese-question",
+    "description": "Japanese question: reply in Japanese with a Chinese translation",
+    "kind": "question",
+    "brief": { "myRole": "営業", "goal": "導入時期の確認", "context": "導入期間：契約後 2 週間でオンボーディング完了。" },
+    "targetLanguage": "zh",
+    "transcript": [{ "who": "remote", "speaker": "S1", "text": "導入にはどのくらいの期間がかかりますか？", "language": "ja" }],
+    "expect": { "shouldSkip": false, "mustMention": ["2|二|２"], "replyLanguage": "ja", "bilingual": true }
+  },
+  {
+    "id": "manual-decline-exclusivity",
+    "description": "User asks (in Chinese) how to decline an exclusivity request made in English: reply in English, explain in Chinese",
+    "kind": "manual",
+    "brief": { "myRole": "Lawgorithm 商务负责人", "goal": "签下试点但不接受排他", "context": "公司政策：不签署任何排他条款。可以提供优先支持和路线图共建作为替代。" },
+    "targetLanguage": "zh",
+    "transcript": [
+      { "who": "remote", "speaker": "S1", "text": "We would need exclusivity in the Singapore legal market for two years.", "language": "en" }
+    ],
+    "userQuestion": "怎么礼貌地拒绝排他条款？",
+    "expect": { "shouldSkip": false, "mustMention": ["priority|roadmap|优先|路线图"], "mustNotMention": ["\\bwe (can|could) (agree to|offer) exclusiv"], "replyLanguage": "en", "bilingual": true }
+  }
+]

@@ -24,6 +24,9 @@ export function Markdown({ text }: { text: string }) {
     const heading = line.match(/^(#{1,4})\s+(.*)$/)
     if (heading) {
       blocks.push(<h4 key={index} className={`md-h${heading[1].length}`}>{inline(heading[2])}</h4>)
+    } else if (line.trim().startsWith('↳')) {
+      // Translation of the suggested reply into the user's language.
+      blocks.push(<p key={index} className="md-translation">{inline(line.trim())}</p>)
     } else if (line.trim()) {
       blocks.push(<p key={index}>{inline(line)}</p>)
     }

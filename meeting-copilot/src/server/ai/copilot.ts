@@ -1,12 +1,16 @@
-import type { LanguageCode, SuggestionTrigger } from '../../shared/protocol.ts'
+import { detectReplyLanguage, languageName } from '../../shared/language.ts'
+import type { DocumentRef, LanguageCode, SuggestionTrigger } from '../../shared/protocol.ts'
 import type { LlmClient } from '../llm/types.ts'
-import { formatTranscript, speakerLabel, type TranscriptStore } from '../transcript.ts'
+import { formatTranscript, speakerLabel, type SpeakerNames, type TranscriptStore } from '../transcript.ts'
 import { copilotPrompt, copilotSystem } from './prompts.ts'
 
 export interface CopilotEvents {
-  start(id: string, trigger: SuggestionTrigger): void
+  /** `waitedMs`: trigger → first visible token (the latency the user feels). */
+  start(id: string, trigger: SuggestionTrigger, waitedMs: number): void
   delta(id: string, delta: string): void
   done(id: string, error?: string): void
+  /** The model judged the trigger not worth a card (answered SKIP). */
+  skipped?(trigger: SuggestionTrigger): void
 }
 
 export interface CopilotOptions {
@@ -15,6 +19,8 @@ export interface CopilotOptions {
   target: Exclude<LanguageCode, 'auto'>
   transcript: TranscriptStore
   cachedContext?: string
+  documents?: DocumentRef[]
+  speakerNames?: () => SpeakerNames
   events: CopilotEvents
   /** Window of transcript sent with each request. */
   windowMs?: number
@@ -74,10 +80,13 @@ export class Copilot {
     this.running = { controller, manual }
 
     const id = `${this.options.idPrefix}-sg${++this.counter}`
-    const { llm, model, target, transcript, cachedContext, events } = this.options
+    const { llm, model, target, transcript, cachedContext, documents, events } = this.options
+    const names = this.options.speakerNames?.() ?? {}
     const recent = transcript.recent(this.options.windowMs ?? 4 * 60_000)
     const focusSegment = recent.find((s) => s.id === request.trigger.segmentId)
-    const focus = focusSegment ? `${speakerLabel(focusSegment)}: ${focusSegment.text}` : request.trigger.text
+    const focus = focusSegment ? `${speakerLabel(focusSegment, names)}: ${focusSegment.text}` : request.trigger.text
+    const replyLanguage = detectReplyLanguage(focusSegment, recent.filter((s) => s.source === 'remote'))
+    const trigger: SuggestionTrigger = replyLanguage ? { ...request.trigger, replyLanguage } : request.trigger
 
     // Buffer the first few characters so a "SKIP" answer never flashes a card.
     let buffer = ''
@@ -85,7 +94,7 @@ export class Copilot {
     const flushStart = () => {
       if (started) return
       started = true
-      events.start(id, request.trigger)
+      events.start(id, trigger, Date.now() - request.queuedAt)
       if (buffer) events.delta(id, buffer)
     }
 
@@ -93,9 +102,16 @@ export class Copilot {
     try {
       const stream = llm.streamText({
         model,
-        system: copilotSystem(target),
+        system: copilotSystem(target, Boolean(documents?.length)),
         cachedContext,
-        prompt: copilotPrompt(request.trigger.kind, formatTranscript(recent), focus, request.question),
+        documents,
+        prompt: copilotPrompt(
+          request.trigger.kind,
+          formatTranscript(recent, names),
+          focus,
+          request.question,
+          replyLanguage ? languageName(replyLanguage) : undefined,
+        ),
         maxTokens: 2048,
         effort: 'low',
         signal: controller.signal,
@@ -109,6 +125,7 @@ export class Copilot {
         const trimmed = buffer.trimStart()
         if (!manual && trimmed.length < SKIP.length && SKIP.startsWith(trimmed)) continue
         if (!manual && trimmed.startsWith(SKIP)) {
+          events.skipped?.(request.trigger)
           controller.abort()
           break
         }
@@ -120,7 +137,7 @@ export class Copilot {
     } finally {
       this.sessionController.signal.removeEventListener('abort', abortOnStop)
       if (started || error) {
-        if (!started) events.start(id, request.trigger)
+        if (!started) events.start(id, trigger, Date.now() - request.queuedAt)
         events.done(id, error ?? (controller.signal.aborted && started ? 'interrupted' : undefined))
       }
       this.running = null

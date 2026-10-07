@@ -33,9 +33,13 @@ export class TranscriptStore {
   }
 }
 
-export function speakerLabel(segment: TranscriptSegment): string {
+export type SpeakerNames = Readonly<Record<string, string>>
+
+export function speakerLabel(segment: TranscriptSegment, names: SpeakerNames = {}): string {
   if (segment.source === 'me') return '我(ME)'
-  return segment.speaker ? `对方(${segment.speaker})` : '对方'
+  if (!segment.speaker) return '对方'
+  const name = names[segment.speaker]
+  return name ? `对方(${segment.speaker}:${name})` : `对方(${segment.speaker})`
 }
 
 export function formatTimestamp(ms: number): string {
@@ -48,6 +52,18 @@ export function formatTimestamp(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-export function formatTranscript(segments: readonly TranscriptSegment[]): string {
-  return segments.map((s) => `[${formatTimestamp(s.startMs)}] ${speakerLabel(s)}: ${s.text}`).join('\n')
+export function formatTranscript(segments: readonly TranscriptSegment[], names: SpeakerNames = {}): string {
+  return segments.map((s) => `[${formatTimestamp(s.startMs)}] ${speakerLabel(s, names)}: ${s.text}`).join('\n')
+}
+
+/** Accepts only short, printable names for diarized speaker ids like "S1". */
+export function sanitizeSpeakerNames(input: unknown): Record<string, string> {
+  if (typeof input !== 'object' || input === null) return {}
+  const out: Record<string, string> = {}
+  for (const [id, name] of Object.entries(input as Record<string, unknown>)) {
+    if (!/^S\d{1,3}$/.test(id) || typeof name !== 'string') continue
+    const clean = name.replace(/[\p{Cc}<>]/gu, '').trim().slice(0, 40)
+    if (clean) out[id] = clean
+  }
+  return out
 }

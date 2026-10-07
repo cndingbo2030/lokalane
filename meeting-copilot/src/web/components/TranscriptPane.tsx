@@ -1,15 +1,19 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { TranscriptSegment } from '../../shared/protocol.ts'
-import { formatClock } from '../state/reducer.ts'
+import { formatClock, speakerDisplay } from '../state/reducer.ts'
 
 interface Props {
   segments: TranscriptSegment[]
   translations: Record<string, string>
+  speakerNames: Record<string, string>
+  /** When set, remote speaker labels are clickable and can be renamed. */
+  onRename?: (speaker: string, name: string) => void
 }
 
-export function TranscriptPane({ segments, translations }: Props) {
+export function TranscriptPane({ segments, translations, speakerNames, onRename }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  const [editing, setEditing] = useState<string | null>(null)
 
   useEffect(() => {
     const el = scroller.current
@@ -20,7 +24,10 @@ export function TranscriptPane({ segments, translations }: Props) {
     <section className="pane transcript" aria-label="实时字幕">
       <header className="pane-header">
         <h3>实时字幕</h3>
-        <span className="muted small">{segments.filter((s) => s.isFinal).length} 句</span>
+        <span className="muted small">
+          {onRename && segments.some((s) => s.speaker) ? '点击说话人可改名 · ' : ''}
+          {segments.filter((s) => s.isFinal).length} 句
+        </span>
       </header>
       <div
         className="pane-body"
@@ -34,7 +41,29 @@ export function TranscriptPane({ segments, translations }: Props) {
         {segments.map((segment) => (
           <article key={segment.id} className={`line ${segment.source} ${segment.isFinal ? '' : 'partial'}`}>
             <div className="line-meta">
-              <span className="who">{segment.source === 'me' ? '我' : segment.speaker ? `对方 ${segment.speaker}` : '对方'}</span>
+              {onRename && segment.speaker && editing === segment.id ? (
+                <input
+                  className="rename"
+                  autoFocus
+                  defaultValue={speakerNames[segment.speaker] ?? ''}
+                  placeholder={`${segment.speaker} 的名字`}
+                  aria-label={`${segment.speaker} 的名字`}
+                  onBlur={(e) => {
+                    onRename(segment.speaker!, e.currentTarget.value)
+                    setEditing(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur()
+                    if (e.key === 'Escape') setEditing(null)
+                  }}
+                />
+              ) : onRename && segment.speaker ? (
+                <button type="button" className="who who-button" title="点击修改说话人名字" onClick={() => setEditing(segment.id)}>
+                  {speakerDisplay(segment, speakerNames)}
+                </button>
+              ) : (
+                <span className="who">{speakerDisplay(segment, speakerNames)}</span>
+              )}
               <span className="time">{formatClock(segment.startMs)}</span>
             </div>
             <p className="text">{segment.text}</p>

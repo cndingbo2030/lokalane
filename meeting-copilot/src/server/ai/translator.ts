@@ -2,7 +2,7 @@ import { isAlreadyInLanguage } from '../../shared/language.ts'
 import type { LanguageCode, TranscriptSegment } from '../../shared/protocol.ts'
 import type { LlmClient } from '../llm/types.ts'
 import { collectText } from '../llm/types.ts'
-import { formatTranscript, type TranscriptStore } from '../transcript.ts'
+import { formatTranscript, type SpeakerNames, type TranscriptStore } from '../transcript.ts'
 import { translatorPrompt, translatorSystem } from './prompts.ts'
 
 export interface TranslatorOptions {
@@ -11,6 +11,7 @@ export interface TranslatorOptions {
   target: Exclude<LanguageCode, 'auto'>
   transcript: TranscriptStore
   cachedContext?: string
+  speakerNames?: () => SpeakerNames
   maxConcurrent?: number
   onTranslation: (segmentId: string, text: string) => void
   onError: (error: unknown) => void
@@ -60,7 +61,7 @@ export class Translator {
   private async translate(segment: TranscriptSegment): Promise<void> {
     const { llm, model, target, transcript, cachedContext } = this.options
     try {
-      const context = formatTranscript(transcript.before(segment.id, 4))
+      const context = formatTranscript(transcript.before(segment.id, 4), this.options.speakerNames?.())
       const text = await collectText(
         llm.streamText({
           model,

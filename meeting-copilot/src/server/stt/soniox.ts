@@ -118,8 +118,8 @@ export class SonioxProvider implements SttProvider {
     let lastAudioAt = Date.now()
 
     const keepAlive = setInterval(() => {
-      if (open && Date.now() - lastAudioAt > 5_000) socket.send(JSON.stringify({ type: 'keepalive' }))
-    }, 5_000)
+      if (open && Date.now() - lastAudioAt > 3_000) socket.send(JSON.stringify({ type: 'keepalive' }))
+    }, 3_000)
 
     socket.on('open', () => {
       socket.send(

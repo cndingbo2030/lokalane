@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { SuggestionKind } from '../../shared/protocol.ts'
+import { languageName } from '../../shared/language.ts'
+import type { FeedbackRating, SuggestionKind } from '../../shared/protocol.ts'
 import type { Suggestion } from '../state/reducer.ts'
 import { Markdown } from './Markdown.tsx'
 
@@ -15,9 +16,10 @@ interface Props {
   enabled: boolean
   canAsk: boolean
   onAsk: (question?: string) => void
+  onRate: (id: string, rating: FeedbackRating | null) => void
 }
 
-export function CopilotPane({ suggestions, enabled, canAsk, onAsk }: Props) {
+export function CopilotPane({ suggestions, enabled, canAsk, onAsk, onRate }: Props) {
   const [question, setQuestion] = useState('')
 
   const submit = () => {
@@ -54,10 +56,31 @@ export function CopilotPane({ suggestions, enabled, canAsk, onAsk }: Props) {
           <article key={s.id} className={`suggestion ${index === 0 ? 'latest' : ''} ${s.done ? '' : 'streaming'}`}>
             <div className="suggestion-meta">
               <span className={`kind kind-${s.trigger.kind}`}>{KIND_LABEL[s.trigger.kind]}</span>
+              {s.trigger.replyLanguage && (
+                <span className="reply-lang" title="建议回应使用对方的语言，下方附你的语言翻译">
+                  用 {languageName(s.trigger.replyLanguage, 'native')} 回复
+                </span>
+              )}
               {s.trigger.text && <span className="quote">“{s.trigger.text}”</span>}
             </div>
             {s.text ? <Markdown text={s.text} /> : <p className="muted">思考中…</p>}
             {s.error && <p className="error-text">{s.error === 'interrupted' ? '已被新的请求打断' : s.error}</p>}
+            {s.done && !s.error && (
+              <div className="feedback" role="group" aria-label="这条建议有用吗">
+                {(['up', 'down'] as const).map((rating) => (
+                  <button
+                    key={rating}
+                    type="button"
+                    className={`feedback-button ${s.rating === rating ? 'on' : ''}`}
+                    aria-pressed={s.rating === rating}
+                    aria-label={rating === 'up' ? '有用' : '没用'}
+                    onClick={() => onRate(s.id, s.rating === rating ? null : rating)}
+                  >
+                    {rating === 'up' ? '👍' : '👎'}
+                  </button>
+                ))}
+              </div>
+            )}
           </article>
         ))}
       </div>

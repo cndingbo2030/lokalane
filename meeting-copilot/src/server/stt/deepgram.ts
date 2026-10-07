@@ -134,10 +134,10 @@ export class DeepgramProvider implements SttProvider {
     let lastAudioAt = Date.now()
 
     const keepAlive = setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN && Date.now() - lastAudioAt > 5_000) {
+      if (socket.readyState === WebSocket.OPEN && Date.now() - lastAudioAt > 3_000) {
         socket.send(JSON.stringify({ type: 'KeepAlive' }))
       }
-    }, 5_000)
+    }, 3_000)
 
     socket.on('open', () => {
       for (const chunk of queue.splice(0)) socket.send(chunk)

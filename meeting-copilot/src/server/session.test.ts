@@ -6,7 +6,7 @@ import { MockLlm } from './llm/mock.ts'
 import { MockSttProvider } from './stt/mock.ts'
 import type { LlmTextRequest } from './llm/types.ts'
 import { MeetingSession } from './session.ts'
-import type { SttProvider, SttStreamOptions } from './stt/types.ts'
+import type { SttProvider, SttResult, SttStreamOptions } from './stt/types.ts'
 
 const baseConfig: SessionConfig = {
   platform: 'zoom',
@@ -41,6 +41,7 @@ function setup(respond?: (r: LlmTextRequest) => string) {
     stt,
     llm,
     models: { copilot: 'copilot-model', translate: 'translate-model', summary: 'summary-model' },
+    metricsIntervalMs: 0,
   })
   return { messages, stt, llm, session }
 }
@@ -72,6 +73,7 @@ describe('MeetingSession', () => {
       stt: new MockSttProvider(),
       llm: new MockLlm(),
       models: { copilot: 'c', translate: 't', summary: 's' },
+      metricsIntervalMs: 0,
     })
     session.handleMessage({ type: 'start', config: baseConfig })
     const loud = new Int16Array(1600).fill(8000)
@@ -147,6 +149,117 @@ describe('MeetingSession', () => {
     expect(messages.map((m) => m.type)).toEqual(expect.arrayContaining(['summary.start', 'summary.delta', 'summary.done']))
     expect(llm.requests[0].model).toBe('summary-model')
     expect(llm.requests[0].prompt).toContain('Let us sign next week.')
+  })
+})
+
+describe('MeetingSession phase 1', () => {
+  const docs = [{ id: 'file_abc', name: '报价单.pdf', kind: 'pdf' as const, sizeBytes: 1000 }]
+
+  it('asks for a reply in the other side’s language with a translation for the user', async () => {
+    const { session, llm, messages } = setup()
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false } })
+    session.onSttResult('remote', { ...result('What is included in the enterprise plan?'), language: 'en' })
+    await session.idle()
+    expect(llm.requests[0].prompt).toContain('<reply_language>English</reply_language>')
+    expect(llm.requests[0].system).toContain('↳')
+    const start = messages.find((m) => m.type === 'suggestion.start')
+    expect(start?.type === 'suggestion.start' && start.trigger.replyLanguage).toBe('en')
+  })
+
+  it('uses speaker names in copilot prompts', async () => {
+    const { session, llm } = setup()
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false } })
+    session.handleMessage({ type: 'speakers', names: { S1: '王总', bad: 'x', S2: '<script>' } })
+    session.onSttResult('remote', result('价格还能再优惠吗？', true, 'S1'))
+    await session.idle()
+    expect(llm.requests[0].prompt).toContain('对方(S1:王总): 价格还能再优惠吗？')
+  })
+
+  it('sends documents to the copilot and summary but not the translator', async () => {
+    const { session, llm } = setup()
+    session.handleMessage({ type: 'start', config: { ...baseConfig, documents: docs } })
+    session.onSttResult('remote', result('What does the enterprise plan include?'))
+    await session.idle()
+    session.handleMessage({ type: 'summary' })
+    await new Promise((r) => setTimeout(r, 50))
+    const byRole = (tag: string) => llm.requests.filter((r) => r.system.includes(tag))
+    expect(byRole('[role:translator]')[0].documents).toBeUndefined()
+    expect(byRole('[role:copilot]')[0].documents).toEqual(docs)
+    expect(byRole('[role:copilot]')[0].system).toContain('来源')
+    expect(byRole('[role:summarizer]')[0].documents).toEqual(docs)
+  })
+
+  it('drops malformed document refs from the client', () => {
+    const { session, llm } = setup()
+    session.handleMessage({
+      type: 'start',
+      config: { ...baseConfig, translate: false, documents: [{ id: '../etc', name: 'x', kind: 'pdf', sizeBytes: 1 }, ...docs] },
+    })
+    session.handleMessage({ type: 'ask', question: 'hi' })
+    return session.idle().then(() => expect(llm.requests[0].documents).toEqual(docs))
+  })
+
+  it('tracks latency, usage, skips and feedback in metrics', async () => {
+    let clock = 1_000
+    const messages: ServerMessage[] = []
+    const llm = new MockLlm((r) => (r.system.includes('[role:copilot]') && r.prompt.includes('weather') ? 'SKIP' : '**建议回应**：OK'))
+    const session = new MeetingSession({
+      send: (m) => messages.push(m),
+      stt: new FakeStt(),
+      llm,
+      models: { copilot: 'claude-opus-5-5', translate: 'claude-opus-5-5', summary: 'claude-opus-5-5' },
+      metricsIntervalMs: 0,
+      now: () => clock,
+    })
+    session.handleMessage({ type: 'start', config: baseConfig })
+    session.onSttResult('remote', result('What is the price?'))
+    await session.idle()
+    clock += 7_000
+    session.onSttResult('remote', result('How is the weather?'))
+    await session.idle()
+    const shown = messages.find((m) => m.type === 'suggestion.start')
+    session.handleMessage({ type: 'feedback', suggestionId: shown?.type === 'suggestion.start' ? shown.id : '', rating: 'up' })
+
+    const m = session.metricsSnapshot()
+    expect(m.finalSegments.remote).toBe(2)
+    expect(m.suggestions).toMatchObject({ triggered: 2, shown: 1, skipped: 1, up: 1, down: 0 })
+    expect(m.llm.copilot.calls).toBe(2)
+    expect(m.llm.translate.calls).toBe(2)
+    expect(m.llm.copilot.inputTokens).toBeGreaterThan(0)
+    expect(m.costUsd).toBeGreaterThan(0)
+    expect(m.translationLatencyMs.count).toBe(2)
+    expect(messages.some((x) => x.type === 'metrics')).toBe(true)
+  })
+
+  it('maps STT timestamps from gated audio back to meeting time', () => {
+    let clock = 0
+    let emit: ((r: SttResult) => void) | undefined
+    const stt: SttProvider = {
+      name: 'fake',
+      open: (options) => {
+        emit = (r) => options.onResult(r)
+        return { write: () => {}, close: async () => {} }
+      },
+    }
+    const messages: ServerMessage[] = []
+    const session = new MeetingSession({
+      send: (m) => messages.push(m),
+      stt,
+      llm: new MockLlm(),
+      models: { copilot: 'c', translate: 't', summary: 's' },
+      metricsIntervalMs: 0,
+      now: () => clock,
+    })
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false } } })
+    const frame = () => new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600)))
+    clock = 2_000
+    session.handleAudio(frame()) // provider 0–100 ms = meeting 2000–2100
+    clock = 30_000
+    session.handleAudio(frame()) // provider 100–200 ms = meeting 30000–30100 (VAD skipped the silence)
+    emit!({ text: 'later', isFinal: true, startMs: 120, endMs: 180 })
+    const seg = messages.find((m) => m.type === 'transcript')
+    expect(seg?.type === 'transcript' && [seg.segment.startMs, seg.segment.endMs]).toEqual([30_020, 30_080])
+    expect(session.metricsSnapshot().audioSentSeconds.remote).toBe(0.2)
   })
 })
 

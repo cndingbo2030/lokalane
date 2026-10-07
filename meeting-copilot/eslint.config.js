@@ -12,7 +12,7 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ['src/server/**/*.ts', 'src/shared/**/*.ts', '*.ts'],
+    files: ['src/server/**/*.ts', 'src/shared/**/*.ts', 'src/eval/**/*.ts', '*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { globals: globals.node },
   },

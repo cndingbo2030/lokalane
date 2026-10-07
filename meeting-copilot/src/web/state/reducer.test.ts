@@ -54,6 +54,21 @@ describe('reducer', () => {
     expect(state.errors).toHaveLength(1)
   })
 
+  it('stores metrics, ratings and speaker names', () => {
+    let state = server(initialState, { type: 'suggestion.start', id: '1', trigger: { kind: 'question', text: 'q' } })
+    state = reducer(state, { type: 'rate', id: '1', rating: 'up' })
+    expect(state.suggestions[0].rating).toBe('up')
+    state = reducer(state, { type: 'rate', id: '1', rating: null })
+    expect(state.suggestions[0].rating).toBeUndefined()
+
+    state = reducer(state, { type: 'renameSpeaker', speaker: 'S1', name: ' 王总 ' })
+    expect(state.speakerNames).toEqual({ S1: '王总' })
+    state = server(state, { type: 'transcript', segment: segment('a', 'Hi', true) })
+    expect(transcriptToMarkdown(state)).toContain('**王总**')
+    state = reducer(state, { type: 'renameSpeaker', speaker: 'S1', name: '' })
+    expect(state.speakerNames).toEqual({})
+  })
+
   it('exports finals with translations as markdown', () => {
     let state = server(initialState, { type: 'transcript', segment: segment('a', 'Hello', true) })
     state = server(state, { type: 'transcript', segment: segment('b', 'partial', false) })

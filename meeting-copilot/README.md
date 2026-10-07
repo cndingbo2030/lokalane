@@ -6,7 +6,12 @@ AI 会议助手：粘贴 **Google Meet / Microsoft Teams / Zoom / 腾讯会议�
 - 📝 **实时字幕**：区分"我"和"对方"，对方多人时自动区分说话人（S1、S2…）
 - 🌐 **实时翻译**：每句话说完即翻译成你选择的语言（中英混说也可以）
 - 💡 **AI 实时应答**：对方提问或提出异议时，自动给出可以直接说出口的回应 + 要点 + 风险提示；也可以随时手动问 AI
+- 🌏 **双语回复**：建议回应用**对方的语言**（可直接念），下方附**你的语言**翻译，卡片标明「用 English 回复」
+- 📎 **参考文件**：上传报价单、产品手册等 PDF / TXT / Markdown / CSV，AI 建议会引用并注明出处
+- 🏷 **说话人命名**：点击 S1/S2 改成真实姓名，AI 建议和纪要都会使用
 - 📋 **会后纪要**：一键生成摘要、决定事项、待办和跟进邮件草稿，并可导出逐字稿
+- 🗂 **会议历史**：会后自动保存在本机浏览器（不上传服务器），可全文搜索、查看、导出、删除
+- 📊 **实时指标**：建议延迟、翻译延迟、识别音频时长、token、预估费用、建议好评率；静音时不发送音频以节省识别费用
 
 ![演示会议界面](docs/demo.png)
 
@@ -33,7 +38,7 @@ npm run dev               # 同时启动服务端 (8790) 和前端 (5180)
 | `DEEPGRAM_API_KEY` | 备选语音识别（`STT_PROVIDER=deepgram`；Nova-3 的多语言混说模式不含中文，中文会议请固定单一语言或用 Soniox） |
 | `ANTHROPIC_API_KEY` | Claude：实时翻译、实时建议、会议纪要 |
 | `COPILOT_MODEL` / `TRANSLATE_MODEL` / `SUMMARY_MODEL` | 各角色使用的模型，默认 `claude-opus-5-5` |
-| `ACCESS_TOKEN` | 可选；设置后需用 `http://host/?token=...` 访问 |
+| `ACCESS_TOKEN` | 可选；设置后需用 `http://host/?token=...` 访问（同时保护 WebSocket 和文件上传接口） |
 | `ALLOWED_ORIGINS` | 可选；允许连接 WebSocket 的来源，逗号分隔 |
 
 没有 STT 密钥时，服务端用能量 VAD 模拟识别（只显示"检测到语音 x 秒"），可用来确认音频采集链路是否正常。
@@ -48,6 +53,18 @@ npm run dev               # 同时启动服务端 (8790) 和前端 (5180)
 6. 会议结束后：生成会议纪要、导出逐字稿、下载录音。
 
 线下会议可选择「仅麦克风」模式。
+
+参考文件会上传到 Claude Files API（无密钥时只在服务端内存中保留文件信息），在界面上点「移除」即删除。
+
+## 评测
+
+```bash
+npm run eval:copilot -- --mock        # 离线检查评测脚本本身（不调用 API）
+npm run eval:copilot                  # 真实模型 + Claude 评审（会产生 API 费用）
+npm run eval:stt -- --languages zh,en # 真实 STT 跑 evals/stt/*.wav（见 evals/stt/README.md）
+```
+
+用例在 `evals/copilot-cases.json`，报告写到 `evals/reports/`（不提交到仓库）。
 
 ## 部署
 
@@ -68,7 +85,8 @@ npm run build      # 类型检查 + 前端构建
 
 | 目录 | 内容 |
 |------|------|
-| `src/shared/` | 前后端共享：线路协议、会议链接解析、PCM 重采样、语言工具 |
-| `src/server/` | WebSocket 服务、会话编排、STT 适配器、Claude 客户端、提示词、触发器 |
-| `src/web/` | React 界面、音频采集引擎、连接管理、状态 |
+| `src/shared/` | 前后端共享：线路协议、会议链接解析、PCM 重采样、VAD 与音频时钟、语言工具 |
+| `src/server/` | WebSocket + HTTP 服务、会话编排、STT 适配器、Claude 客户端、提示词、触发器、指标、参考文件 |
+| `src/web/` | React 界面、音频采集引擎、连接管理、状态、本地会议历史 |
+| `src/eval/` | 评测：混合错误率、WAV 解码、STT / Copilot 评测脚本 |
 | `public/pcm-worklet.js` | AudioWorklet 采集处理器 |

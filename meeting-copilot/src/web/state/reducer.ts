@@ -1,4 +1,4 @@
-import type { ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
+import type { FeedbackRating, MetricsSnapshot, ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
 
 export type Phase = 'setup' | 'connecting' | 'live' | 'ended'
 
@@ -8,6 +8,7 @@ export interface Suggestion {
   text: string
   done: boolean
   error?: string
+  rating?: FeedbackRating
 }
 
 export interface AppState {
@@ -21,6 +22,9 @@ export interface AppState {
   suggestions: Suggestion[]
   summary: { status: 'idle' | 'streaming' | 'done' | 'error'; text: string; error?: string }
   errors: Array<{ id: number; message: string }>
+  /** Display names for diarized speakers, e.g. { S1: '王总' }. */
+  speakerNames: Record<string, string>
+  metrics?: MetricsSnapshot
 }
 
 export type Action =
@@ -28,6 +32,8 @@ export type Action =
   | { type: 'phase'; phase: Phase }
   | { type: 'error'; message: string }
   | { type: 'dismissError'; id: number }
+  | { type: 'rate'; id: string; rating: FeedbackRating | null }
+  | { type: 'renameSpeaker'; speaker: string; name: string }
   | { type: 'reset' }
 
 export const initialState: AppState = {
@@ -37,6 +43,7 @@ export const initialState: AppState = {
   suggestions: [],
   summary: { status: 'idle', text: '' },
   errors: [],
+  speakerNames: {},
 }
 
 let errorCounter = 0
@@ -52,6 +59,15 @@ export function reducer(state: AppState, action: Action): AppState {
       return addError(state, action.message)
     case 'dismissError':
       return { ...state, errors: state.errors.filter((e) => e.id !== action.id) }
+    case 'rate':
+      return updateSuggestion(state, action.id, (s) => ({ ...s, rating: action.rating ?? undefined }))
+    case 'renameSpeaker': {
+      const speakerNames = { ...state.speakerNames }
+      const name = action.name.trim()
+      if (name) speakerNames[action.speaker] = name
+      else delete speakerNames[action.speaker]
+      return { ...state, speakerNames }
+    }
     case 'server':
       return applyServerMessage(state, action.message)
   }
@@ -91,6 +107,8 @@ function applyServerMessage(state: AppState, message: ServerMessage): AppState {
           ? { ...state.summary, status: 'error', error: message.error }
           : { ...state.summary, status: 'done' },
       }
+    case 'metrics':
+      return { ...state, metrics: message.metrics }
     case 'error':
       return addError(state, message.message)
     case 'pong':
@@ -124,11 +142,17 @@ function addError(state: AppState, message: string): AppState {
   return { ...state, errors: [...state.errors, { id: ++errorCounter, message }].slice(-3) }
 }
 
-export function transcriptToMarkdown(state: AppState): string {
+export function speakerDisplay(segment: TranscriptSegment, names: Record<string, string>): string {
+  if (segment.source === 'me') return '我'
+  if (!segment.speaker) return '对方'
+  return names[segment.speaker] ?? `对方 ${segment.speaker}`
+}
+
+export function transcriptToMarkdown(state: Pick<AppState, 'segments' | 'translations' | 'speakerNames'>): string {
   const lines = state.segments
     .filter((s) => s.isFinal)
     .map((s) => {
-      const who = s.source === 'me' ? '我' : s.speaker ? `对方 ${s.speaker}` : '对方'
+      const who = speakerDisplay(s, state.speakerNames)
       const translation = state.translations[s.id]
       return `- **${who}** (${formatClock(s.startMs)}): ${s.text}${translation ? `\n  - _${translation}_` : ''}`
     })

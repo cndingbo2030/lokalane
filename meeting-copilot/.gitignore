@@ -3,3 +3,6 @@ dist
 .env
 .env.local
 recordings
+evals/reports
+evals/stt/*.wav
+evals/stt/*.txt

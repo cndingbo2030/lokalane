@@ -1,5 +1,6 @@
 import { AUDIO_FRAME_MS, AUDIO_SAMPLE_RATE, type AudioSource } from '../../shared/protocol.ts'
 import { floatTo16BitPcm, PcmFramer, rms16, StreamingResampler } from '../../shared/pcm.ts'
+import { VoiceGate } from '../../shared/vad.ts'
 
 export type CaptureMode = 'tab' | 'mic-only'
 
@@ -8,6 +9,12 @@ export interface EngineCallbacks {
   onLevel: (source: AudioSource, level: number) => void
   /** The user stopped sharing from the browser's own UI. */
   onEnded: () => void
+}
+
+export interface EngineOptions {
+  record: boolean
+  /** Skip streaming silence to STT (client-side VAD). */
+  vad: boolean
 }
 
 export class CaptureError extends Error {}
@@ -23,7 +30,7 @@ export class AudioEngine {
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
 
-  async start(mode: CaptureMode, callbacks: EngineCallbacks, record: boolean): Promise<void> {
+  async start(mode: CaptureMode, callbacks: EngineCallbacks, options: EngineOptions): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw new CaptureError('当前浏览器不支持音频采集，请使用最新版 Chrome 或 Edge。')
 
     let remote: MediaStream | null = null
@@ -56,10 +63,10 @@ export class AudioEngine {
 
     // In mic-only mode (in-person meeting) the microphone hears everyone, so it is
     // treated as "remote" audio: diarized, and eligible for copilot triggers.
-    this.attach(context, mic, mode === 'tab' ? 'me' : 'remote', sink, recording, callbacks)
-    if (remote) this.attach(context, remote, 'remote', sink, recording, callbacks)
+    this.attach(context, mic, mode === 'tab' ? 'me' : 'remote', sink, recording, callbacks, options.vad)
+    if (remote) this.attach(context, remote, 'remote', sink, recording, callbacks, options.vad)
 
-    if (record && typeof MediaRecorder !== 'undefined') {
+    if (options.record && typeof MediaRecorder !== 'undefined') {
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((t) => MediaRecorder.isTypeSupported(t))
       this.recorder = new MediaRecorder(recording.stream, mimeType ? { mimeType } : undefined)
       this.chunks = []
@@ -116,6 +123,7 @@ export class AudioEngine {
     sink: AudioNode,
     recording: MediaStreamAudioDestinationNode,
     callbacks: EngineCallbacks,
+    vad: boolean,
   ): void {
     const input = context.createMediaStreamSource(new MediaStream(stream.getAudioTracks()))
     const worklet = new AudioWorkletNode(context, 'pcm-capture', {
@@ -131,11 +139,12 @@ export class AudioEngine {
 
     const resampler = new StreamingResampler(context.sampleRate, AUDIO_SAMPLE_RATE)
     const framer = new PcmFramer((AUDIO_SAMPLE_RATE * AUDIO_FRAME_MS) / 1000)
+    const gate = vad ? new VoiceGate() : null
     worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
       const pcm = floatTo16BitPcm(resampler.process(event.data))
       for (const frame of framer.push(pcm)) {
-        callbacks.onFrame(source, frame)
         callbacks.onLevel(source, rms16(frame))
+        for (const out of gate ? gate.push(frame) : [frame]) callbacks.onFrame(source, out)
       }
     }
   }

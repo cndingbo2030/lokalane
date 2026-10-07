@@ -1,7 +1,9 @@
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { LANGUAGE_NAMES } from '../../shared/language.ts'
 import type { ParsedMeetingLink } from '../../shared/meetingLink.ts'
-import type { LanguageCode } from '../../shared/protocol.ts'
+import type { DocumentRef, LanguageCode } from '../../shared/protocol.ts'
 import type { CaptureMode } from '../audio/engine.ts'
+import { deleteDocument, uploadDocument } from '../net/api.ts'
 
 export interface SetupForm {
   link: string
@@ -12,6 +14,11 @@ export interface SetupForm {
   copilot: boolean
   autoTrigger: boolean
   record: boolean
+  /** Skip streaming silence to STT (client-side VAD). */
+  vad: boolean
+  /** Save finished meetings to this browser's history (IndexedDB). */
+  saveHistory: boolean
+  documents: DocumentRef[]
   myRole: string
   goal: string
   context: string
@@ -27,6 +34,9 @@ export const defaultForm: SetupForm = {
   copilot: true,
   autoTrigger: true,
   record: true,
+  vad: true,
+  saveHistory: true,
+  documents: [],
   myRole: '',
   goal: '',
   context: '',
@@ -43,9 +53,11 @@ const PLATFORM_TIPS: Record<string, string> = {
   unknown: '未识别的平台，仍可在新标签页打开后共享该标签页。',
 }
 
+const ACCEPT = '.pdf,.txt,.md,.markdown,.csv,application/pdf,text/plain,text/markdown,text/csv'
+
 interface Props {
   form: SetupForm
-  onChange: (form: SetupForm) => void
+  onChange: Dispatch<SetStateAction<SetupForm>>
   parsed: ParsedMeetingLink | null
   busy: boolean
   onStart: () => void
@@ -53,7 +65,33 @@ interface Props {
 }
 
 export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Props) {
-  const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => onChange({ ...form, [key]: value })
+  const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => onChange((f) => ({ ...f, [key]: value }))
+  const [uploading, setUploading] = useState<string[]>([])
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const addFiles = async (files: FileList | null) => {
+    setUploadError(null)
+    for (const file of Array.from(files ?? [])) {
+      setUploading((u) => [...u, file.name])
+      try {
+        const ref = await uploadDocument(file)
+        onChange((f) => ({ ...f, documents: [...f.documents, ref] }))
+      } catch (error) {
+        setUploadError(`${file.name}：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        setUploading((u) => u.filter((name) => name !== file.name))
+      }
+    }
+  }
+
+  const removeDocument = async (doc: DocumentRef) => {
+    onChange((f) => ({ ...f, documents: f.documents.filter((d) => d.id !== doc.id) }))
+    try {
+      await deleteDocument(doc.id)
+    } catch {
+      // Already removed from the meeting; a stale server-side copy is harmless.
+    }
+  }
   const toggleLanguage = (lang: Exclude<LanguageCode, 'auto'>) => {
     const has = form.spokenLanguages.includes(lang)
     const next = has ? form.spokenLanguages.filter((l) => l !== lang) : [...form.spokenLanguages, lang]
@@ -127,6 +165,8 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Pr
           <Toggle label="AI 实时建议" checked={form.copilot} onChange={(v) => set('copilot', v)} />
           <Toggle label="对方提问/异议时自动给建议" checked={form.autoTrigger} disabled={!form.copilot} onChange={(v) => set('autoTrigger', v)} />
           <Toggle label="本地录音（会后下载）" checked={form.record} onChange={(v) => set('record', v)} />
+          <Toggle label="静音时不发送音频（节省识别费用）" checked={form.vad} onChange={(v) => set('vad', v)} />
+          <Toggle label="会后保存到本机历史（不上传服务器）" checked={form.saveHistory} onChange={(v) => set('saveHistory', v)} />
         </div>
       </section>
 
@@ -153,6 +193,41 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Pr
             onChange={(e) => set('context', e.target.value)}
           />
         </label>
+        <div className="documents">
+          <span className="field-label">参考文件（PDF / TXT / Markdown / CSV）：AI 建议会引用并注明出处</span>
+          <ul className="doc-list">
+            {form.documents.map((doc) => (
+              <li key={doc.id}>
+                <span className="doc-kind">{doc.kind === 'pdf' ? 'PDF' : 'TXT'}</span>
+                <span className="doc-name">{doc.name}</span>
+                <span className="muted small">{formatBytes(doc.sizeBytes)}</span>
+                <button type="button" className="link-button" aria-label={`移除 ${doc.name}`} onClick={() => void removeDocument(doc)}>
+                  移除
+                </button>
+              </li>
+            ))}
+            {uploading.map((name) => (
+              <li key={`up-${name}`} className="muted">
+                <span className="doc-kind">…</span>
+                <span className="doc-name">{name}</span>
+                <span className="small">上传中</span>
+              </li>
+            ))}
+          </ul>
+          <label className="button secondary file-button">
+            添加文件
+            <input
+              type="file"
+              accept={ACCEPT}
+              multiple
+              onChange={(e) => {
+                void addFiles(e.target.files)
+                e.target.value = ''
+              }}
+            />
+          </label>
+          {uploadError && <p className="error-text">{uploadError}</p>}
+        </div>
       </section>
 
       <section className="card wide start-row">
@@ -176,6 +251,12 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Pr
       </section>
     </div>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function Toggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
