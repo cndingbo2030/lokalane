@@ -54,7 +54,6 @@ export class MeetingSession {
   private config: SessionConfig | null = null
   private documents: DocumentRef[] = []
   private speakerNames: Record<string, string> = {}
-  private startedAt = 0
   private readonly streams = new Map<AudioSource, SttStream>()
   private readonly clocks: Record<AudioSource, AudioClock> = { me: new AudioClock(), remote: new AudioClock() }
   private readonly counters: Record<AudioSource, number> = { me: 0, remote: 0 }
@@ -113,7 +112,8 @@ export class MeetingSession {
     const decoded = decodeAudioFrame(frame)
     if (!decoded) return
     const durationMs = (decoded.pcm.byteLength / 2 / AUDIO_SAMPLE_RATE) * 1000
-    this.clocks[decoded.source].record(this.now() - this.startedAt, durationMs)
+    // Client capture time, not arrival time: exact even for audio buffered during a disconnect.
+    this.clocks[decoded.source].record(decoded.captureMs, durationMs)
     this.metrics.addAudio(decoded.source, durationMs)
     this.streamFor(decoded.source).write(decoded.pcm)
   }
@@ -135,17 +135,20 @@ export class MeetingSession {
     await Promise.all([this.translator?.idle(), this.copilot?.idle()])
   }
 
+  /** A dropped client re-attached: confirm, with the same session id. */
+  announceResumed(): void {
+    this.deps.send({ type: 'ready', sessionId: this.id, stt: this.deps.stt.name, llm: this.deps.llm.name, resumed: true })
+  }
+
   metricsSnapshot(): MetricsSnapshot {
     return this.metrics.snapshot()
   }
 
   private start(config: SessionConfig): void {
     if (this.config) {
-      // A restart (e.g. reconnect) keeps the transcript but applies the new settings.
+      // A restart keeps the transcript but applies the new settings.
       this.translator?.stop()
       this.copilot?.stop()
-    } else {
-      this.startedAt = this.now()
     }
     this.config = config
     this.documents = sanitizeDocuments(config.documents)

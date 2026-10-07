@@ -24,7 +24,7 @@
 | 方式 | 原理 | 覆盖 | 优点 | 缺点 | 阶段 |
 |------|------|------|------|------|------|
 | **A. 浏览器标签页采集**（已实现） | 用户在新标签页用网页版入会，本工具通过 `getDisplayMedia` 共享该标签页音频 + `getUserMedia` 采集麦克风 | Meet ✅ Teams ✅ Zoom ✅（自动改写为 `/wc/join/` 网页入会链接） 腾讯会议/VooV ✅（网页入会） | 零审批、零安装、四平台通用、对方看不到机器人 | 需要用户每次选择标签页；依赖 Chrome/Edge | **0** |
-| **B. 桌面端系统音频回环** | Electron 桌面应用直接采集系统输出音频（macOS ScreenCaptureKit / Windows WASAPI loopback）+ 麦克风 | 任意会议软件（含桌面客户端） | 不用网页版；可做置顶悬浮提词窗 | 需要安装和系统权限 | 2 |
+| **B. 桌面端系统音频回环**（已实现） | Electron 桌面应用采集系统输出音频（Windows loopback；macOS 视系统版本）+ 麦克风 | 任意会议软件（含桌面客户端） | 不用网页版；置顶悬浮提词器；对屏幕共享隐藏 | 需要安装和系统权限 | 2 |
 | **C. 会议机器人入会** | 服务器端无头浏览器或平台 SDK 以"XX 的会议助手"身份加入会议 | Meet、Teams（网页访客入会）；Zoom（Meeting SDK，需按 Zoom 当前政策取得加入外部账号会议的授权，上线前必须复核）；腾讯会议 ❌ 无公开入会 API → 用 A/B | 用户不用开电脑也能录；可结合日历自动入会 | 每平台单独维护；平台改版易失效；需审批 | 3 |
 
 > 可选的"买而不建"：第三方会议机器人基础设施（如 Recall.ai 一类的服务）可以显著缩短 C 方案的上线时间，代价是成本和数据经过第三方。建议 Phase 3 时做一次对比评估。
@@ -162,10 +162,22 @@
 - [ ] 部分结果投机触发（对方句子未结束时预热请求）——等真实会议的延迟数据出来再决定是否值得做
 - [ ] 用真实会议（脱敏）扩充评测集，跑第一轮基线（需要 API 密钥，会产生费用）
 
-### Phase 2 — 桌面端（4–6 周）
-- 复用仓库已有的 Electron 打包能力：系统音频回环采集（支持桌面版 Zoom / Teams / 腾讯会议）
-- 置顶悬浮提词窗 + 快捷键（"现在给我建议"）；共享屏幕时对该窗口启用内容保护，避免建议被意外共享出去
-- 离线兜底：网络抖动时本地缓存音频，恢复后补识别
+### Phase 2 — 桌面端与稳定性（已交付主体）
+- [x] **桌面应用（Electron）**：主进程内置 copilot 服务（只监听 127.0.0.1，每次启动随机访问令牌），加载同一套 Web 界面；外部链接（会议邀请）交给系统默认浏览器或会议客户端打开。
+- [x] **系统声音采集**：桌面版新增「系统声音」模式，主进程用 `setDisplayMediaRequestHandler` 返回屏幕源 + `audio: 'loopback'`，可配合 Zoom / Teams / 腾讯会议**桌面客户端**使用，麦克风仍单独一路（"我/对方"分离不变）。
+  - 平台说明：Electron 官方文档标注系统声音回环在 **Windows** 上支持；macOS 取决于系统和 Electron 版本（已在 Info.plist 声明 `NSAudioCaptureUsageDescription`），拿不到声音时界面会给出明确的替代方案（共享浏览器标签页，或 BlackHole 等虚拟声卡）。Linux 请使用标签页模式。
+- [x] **置顶提词器**：无边框、始终置顶（可浮在全屏会议窗口之上、跨桌面空间）的小窗口，显示对方最新一句话 + 翻译、最新建议（双语）和「立即建议」按钮；默认对屏幕共享**不可见**（`setContentProtection`），主窗口同样可选隐藏，避免字幕和建议被共享出去。
+  - 浏览器版同样提供「画中画提词器」（Document Picture-in-Picture API，Chrome / Edge 116+）。
+- [x] **全局快捷键**：`Ctrl/⌘ + Shift + Space` 立即建议，`Ctrl/⌘ + Shift + O` 显示/隐藏提词器；会议应用在前台时也有效。
+- [x] **密钥安全**：API 密钥在桌面设置中填写，用系统钥匙串（Electron `safeStorage`）加密保存在本机；界面只能看到"是否已设置"，看不到明文；系统钥匙串不可用时拒绝保存（可改用环境变量）。
+- [x] **断网续会**：
+  - 服务端会话在连接断开后保留 2 分钟，客户端重连时带上 `resumeSessionId` 续上同一场会议（逐字稿、STT 流、Copilot 上下文都不丢）；断开期间产生的翻译和建议排队，重连后补发。
+  - 客户端在断开期间缓存音频（约 2.5 分钟），重连后以约 8 倍速补发，实时音频排在后面，保证顺序。
+  - 音频帧带**采集时间戳**，服务端按采集时间而不是到达时间排时间轴，补发的音频时间也准确。
+  - 用户主动结束会议时发送 `leave`，服务端立即释放会话。
+- [x] 打包：`npm run desktop:package`（macOS dmg/zip、Windows nsis、Linux AppImage，未签名的测试包）
+- [ ] 代码签名与公证（macOS Developer ID、Windows 证书）、自动更新——正式分发前需要
+- [ ] macOS 系统声音在真机（macOS 14/15）上的验证；如不可用，评估接入 ScreenCaptureKit 原生模块
 
 ### Phase 3 — 自动入会与工作流（6–10 周）
 - Google Calendar / Outlook 日历集成：会前自动生成简报、到点自动入会（Meet / Teams 机器人；Zoom 走 Meeting SDK 授权流程）
@@ -200,7 +212,9 @@ meeting-copilot/
 ├── public/pcm-worklet.js     ← AudioWorklet：采集 Float32 音频
 ├── src/shared/               ← 前后端共享：协议、链接解析、PCM 工具、语言工具
 ├── src/server/
-│   ├── index.ts              ← HTTP + WebSocket 服务、鉴权、静态文件
+│   ├── index.ts              ← 独立运行入口
+│   ├── app.ts                ← HTTP + WebSocket 服务、鉴权、静态文件（桌面版内嵌复用）
+│   ├── registry.ts           ← 会话保活与断线续会
 │   ├── session.ts            ← 会议编排（STT → 翻译 / 触发 / 建议 / 纪要）
 │   ├── stt/                  ← Soniox、Deepgram、Mock 适配器
 │   ├── llm/                  ← Claude 客户端（流式、回退、缓存）与 Mock
@@ -210,6 +224,7 @@ meeting-copilot/
 │   ├── metrics.ts            ← 延迟 / 用量 / 费用 / 反馈指标
 │   ├── documents.ts          ← 参考文件（Files API）
 │   └── demo.ts               ← 演示会议脚本
+├── src/desktop/              ← Electron 主进程（内置服务、系统声音、提词器窗口、快捷键）、preload、设置
 ├── src/eval/                 ← 评测：错误率、WAV 解码、STT 与 Copilot 评测脚本
 ├── evals/                    ← 评测用例与（本地）音频夹具、报告
 └── src/web/                  ← React 前端：采集引擎（含 VAD）、连接、状态、历史记录、界面组件

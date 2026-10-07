@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { parseMeetingLink } from '../shared/meetingLink.ts'
 import { encodeAudioFrame, type AudioSource, type FeedbackRating, type MeetingPlatform, type SessionConfig } from '../shared/protocol.ts'
 import { AudioEngine, CaptureError } from './audio/engine.ts'
 import { CopilotPane } from './components/CopilotPane.tsx'
+import { DesktopSettingsPanel } from './components/DesktopSettingsPanel.tsx'
 import { HistoryPanel, MeetingViewer } from './components/HistoryPanel.tsx'
 import { Markdown } from './components/Markdown.tsx'
 import { MetricsBar } from './components/MetricsBar.tsx'
 import { defaultForm, SetupPanel, type SetupForm } from './components/SetupPanel.tsx'
 import { TranscriptPane } from './components/TranscriptPane.tsx'
+import { desktop } from './desktop.ts'
 import { meetingHistory } from './history/db.ts'
 import { buildRecord, type MeetingRecord } from './history/model.ts'
 import { CopilotConnection, serverUrl, type ConnectionStatus } from './net/connection.ts'
+import { deriveOverlayState } from './overlay/overlayState.ts'
+import { OverlayView } from './overlay/OverlayView.tsx'
+import { usePictureInPicture } from './overlay/usePictureInPicture.ts'
 import { initialState, reducer, transcriptToMarkdown } from './state/reducer.ts'
 
 const FORM_KEY = 'meeting-copilot:form'
@@ -20,11 +26,15 @@ function loadForm(): SetupForm {
   try {
     const saved = localStorage.getItem(FORM_KEY)
     // Consent is per meeting and the link is per meeting: never restore them.
-    if (saved) return { ...defaultForm, ...(JSON.parse(saved) as Partial<SetupForm>), consent: false, link: '' }
+    if (saved) {
+      const form = { ...defaultForm, ...(JSON.parse(saved) as Partial<SetupForm>), consent: false, link: '' }
+      // System audio capture only exists in the desktop app.
+      return !desktop && form.mode === 'system' ? { ...form, mode: 'tab' } : form
+    }
   } catch {
     // storage unavailable
   }
-  return defaultForm
+  return desktop ? { ...defaultForm, mode: 'system' } : defaultForm
 }
 
 function saveForm(form: SetupForm): void {
@@ -61,8 +71,30 @@ export function App() {
   const levelBuffer = useRef<Record<AudioSource, number>>({ me: 0, remote: 0 })
 
   const parsed = useMemo(() => parseMeetingLink(form.link), [form.link])
+  const overlayState = useMemo(() => deriveOverlayState(state), [state])
+  const pip = usePictureInPicture()
+  const ask = () => connectionRef.current?.send({ type: 'ask' })
 
   useEffect(() => saveForm(form), [form])
+
+  // Desktop: mirror the prompter into the always-on-top overlay window.
+  useEffect(() => {
+    if (!desktop) return
+    desktop.publishOverlay(overlayState)
+  }, [overlayState])
+
+  useEffect(() => {
+    desktop?.setOverlayVisible(state.phase === 'live' || state.phase === 'connecting')
+  }, [state.phase])
+
+  // Desktop: global hotkeys and overlay buttons.
+  useEffect(
+    () =>
+      desktop?.onAction((action) => {
+        if (action.type === 'ask') connectionRef.current?.send({ type: 'ask' })
+      }),
+    [],
+  )
 
   useEffect(() => {
     meetingHistory
@@ -157,7 +189,7 @@ export function App() {
       await engine.start(
         form.mode,
         {
-          onFrame: (source, pcm) => conn.sendAudio(encodeAudioFrame(source, pcm)),
+          onFrame: (source, pcm, captureMs) => conn.sendAudio(encodeAudioFrame(source, pcm, captureMs)),
           onLevel: (source, level) => {
             levelBuffer.current[source] = Math.max(level, levelBuffer.current[source] * 0.6)
           },
@@ -195,6 +227,7 @@ export function App() {
   }
 
   const newMeeting = () => {
+    pip.close()
     connectionRef.current?.close()
     connectionRef.current = null
     setMeeting(null)
@@ -282,7 +315,8 @@ export function App() {
 
       {!inMeeting && !viewing && (
         <>
-          <SetupPanel form={form} onChange={setForm} parsed={parsed} busy={false} onStart={() => void start()} onDemo={startDemo} />
+          <SetupPanel form={form} onChange={setForm} parsed={parsed} busy={false} onStart={() => void start()} onDemo={startDemo} desktop={Boolean(desktop)} />
+          <DesktopSettingsPanel />
           <HistoryPanel records={history} onOpen={setViewing} />
         </>
       )}
@@ -293,8 +327,8 @@ export function App() {
             <div className="controls-left">
               {!demo && state.phase === 'live' && (
                 <div className="meters">
-                  {form.mode === 'tab' && <Meter label="我" level={levels.me} />}
-                  <Meter label={form.mode === 'tab' ? '会议' : '现场'} level={levels.remote} />
+                  {form.mode !== 'mic-only' && <Meter label="我" level={levels.me} />}
+                  <Meter label={form.mode === 'mic-only' ? '现场' : '会议'} level={levels.remote} />
                 </div>
               )}
               <MetricsBar metrics={state.metrics} elapsedSeconds={elapsed} />
@@ -320,6 +354,11 @@ export function App() {
               <button type="button" className="button secondary" disabled={!state.segments.length} onClick={downloadTranscript}>
                 导出逐字稿
               </button>
+              {!desktop && pip.supported && (
+                <button type="button" className="button secondary" onClick={() => void pip.open()} title="置顶的小窗口：看会议时也能看到建议">
+                  画中画提词器
+                </button>
+              )}
               {recordingUrl && (
                 <a className="button secondary" href={recordingUrl} download="meeting-recording.webm">
                   下载录音
@@ -338,6 +377,9 @@ export function App() {
               onRate={rate}
             />
           </div>
+
+          {pip.container &&
+            createPortal(<OverlayView state={overlayState} onAsk={ask} />, pip.container)}
 
           {state.summary.status !== 'idle' && (
             <section className="card summary">

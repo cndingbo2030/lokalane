@@ -909,3 +909,132 @@ a:focus-visible {
   color: var(--muted);
   font-size: 13.5px;
 }
+
+/* ---- Phase 2: floating prompter (desktop overlay window and browser PiP) ---- */
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  height: 100vh;
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: drag;
+}
+
+.overlay-header button {
+  -webkit-app-region: no-drag;
+}
+
+.overlay-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.overlay-dot.live {
+  background: var(--danger);
+}
+
+.overlay-title {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.overlay-button {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.overlay-button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.overlay-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.overlay-remote {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--remote);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.overlay-speaker {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--remote);
+}
+
+.overlay-translation {
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.overlay-suggestion {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.overlay-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.pip-body {
+  margin: 0;
+}
+
+.desktop-settings .key-row {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.key-state {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.key-state.set {
+  color: var(--ok);
+}
+
+@media (max-width: 860px) {
+  .desktop-settings .key-row {
+    grid-template-columns: 1fr;
+  }
+}

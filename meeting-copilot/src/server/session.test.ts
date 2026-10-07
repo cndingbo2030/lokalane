@@ -51,14 +51,14 @@ const result = (text: string, isFinal = true, speaker?: string) => ({ text, isFi
 describe('MeetingSession', () => {
   it('routes audio frames to one STT stream per source, diarizing only remote audio', () => {
     const { session, stt, messages } = setup()
-    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600))))
+    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600), 0)))
     expect(stt.opened).toHaveLength(0) // ignored before start
     session.handleMessage({ type: 'start', config: baseConfig })
     expect(messages[0]).toMatchObject({ type: 'ready', stt: 'fake', llm: 'mock' })
 
-    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600))))
-    session.handleAudio(new Uint8Array(encodeAudioFrame('me', new Int16Array(1600))))
-    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600))))
+    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600), 0)))
+    session.handleAudio(new Uint8Array(encodeAudioFrame('me', new Int16Array(1600), 0)))
+    session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600), 0)))
     expect(stt.opened.map((o) => [o.source, o.diarize])).toEqual([
       ['remote', true],
       ['me', false],
@@ -77,7 +77,7 @@ describe('MeetingSession', () => {
     })
     session.handleMessage({ type: 'start', config: baseConfig })
     const loud = new Int16Array(1600).fill(8000)
-    for (let i = 0; i < 3; i++) session.handleAudio(new Uint8Array(encodeAudioFrame('remote', loud)))
+    for (let i = 0; i < 3; i++) session.handleAudio(new Uint8Array(encodeAudioFrame('remote', loud, i * 100)))
     expect(messages.some((m) => m.type === 'transcript')).toBe(true)
   })
 
@@ -251,11 +251,10 @@ describe('MeetingSession phase 1', () => {
       now: () => clock,
     })
     session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false } } })
-    const frame = () => new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600)))
-    clock = 2_000
-    session.handleAudio(frame()) // provider 0–100 ms = meeting 2000–2100
-    clock = 30_000
-    session.handleAudio(frame()) // provider 100–200 ms = meeting 30000–30100 (VAD skipped the silence)
+    const frame = (captureMs: number) => new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600), captureMs))
+    clock = 50_000 // arrival time is irrelevant: frames carry their capture time
+    session.handleAudio(frame(2_000)) // provider 0–100 ms = meeting 2000–2100
+    session.handleAudio(frame(30_000)) // provider 100–200 ms = meeting 30000–30100 (VAD skipped the silence)
     emit!({ text: 'later', isFinal: true, startMs: 120, endMs: 180 })
     const seg = messages.find((m) => m.type === 'transcript')
     expect(seg?.type === 'transcript' && [seg.segment.startMs, seg.segment.endMs]).toEqual([30_020, 30_080])

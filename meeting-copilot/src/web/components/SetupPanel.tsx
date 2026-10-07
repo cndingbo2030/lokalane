@@ -62,9 +62,11 @@ interface Props {
   busy: boolean
   onStart: () => void
   onDemo: () => void
+  /** Running inside the desktop app: offers system-audio capture. */
+  desktop?: boolean
 }
 
-export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Props) {
+export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desktop = false }: Props) {
   const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => onChange((f) => ({ ...f, [key]: value }))
   const [uploading, setUploading] = useState<string[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -123,6 +125,11 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Pr
           </div>
         )}
         <div className="segmented" role="radiogroup" aria-label="采集方式">
+          {desktop && (
+            <button type="button" role="radio" aria-checked={form.mode === 'system'} className={form.mode === 'system' ? 'on' : ''} onClick={() => set('mode', 'system')}>
+              系统声音（任意会议软件 + 麦克风）
+            </button>
+          )}
           <button type="button" role="radio" aria-checked={form.mode === 'tab'} className={form.mode === 'tab' ? 'on' : ''} onClick={() => set('mode', 'tab')}>
             线上会议（共享会议标签页 + 麦克风）
           </button>
@@ -240,9 +247,14 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo }: Pr
             试用演示会议
           </button>
           <button type="button" className="button primary" disabled={busy || !form.consent} onClick={onStart}>
-            {form.mode === 'tab' ? '开始：选择会议标签页' : '开始：使用麦克风'}
+            {form.mode === 'tab' ? '开始：选择会议标签页' : form.mode === 'system' ? '开始：采集系统声音' : '开始：使用麦克风'}
           </button>
         </div>
+        {form.mode === 'system' && (
+          <p className="muted small">
+            桌面版直接采集电脑播放的所有声音，可配合 Zoom / Teams / 腾讯会议<b>桌面客户端</b>使用。建议佩戴耳机，并关闭其他会发声的应用。
+          </p>
+        )}
         {form.mode === 'tab' && (
           <p className="muted small">
             点击开始后，在浏览器弹窗中选择<b>会议所在的标签页</b>，并勾选<b>「同时分享标签页音频」</b>。建议佩戴耳机，避免对方声音被麦克风重复采集。

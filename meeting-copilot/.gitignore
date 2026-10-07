@@ -6,3 +6,5 @@ recordings
 evals/reports
 evals/stt/*.wav
 evals/stt/*.txt
+dist-electron
+release

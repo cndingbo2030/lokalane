@@ -21,6 +21,9 @@ jobs:
 
   meeting-copilot:
     runs-on: ubuntu-latest
+    env:
+      # The Electron binary is only needed to run or package the desktop app, not for CI checks.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     defaults:
       run:
         working-directory: meeting-copilot
@@ -35,3 +38,4 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      - run: node scripts/build-desktop.mjs
