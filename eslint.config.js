@@ -10,6 +10,7 @@ export default defineConfig([
     'android',
     'artifacts',
     'dist',
+    'meeting-copilot',
   ]),
   {
     files: ['**/*.{ts,tsx}'],

@@ -1,0 +1,86 @@
+{
+  "name": "meeting-copilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI meeting copilot: join Google Meet / Teams / Zoom / Tencent Meeting, record, live-translate and get real-time suggested responses.",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc -b && vite build && node scripts/build-server.mjs",
+    "start": "NODE_ENV=production node --enable-source-maps dist-server/server.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "eval:copilot": "tsx src/eval/copilot-eval.ts",
+    "eval:stt": "tsx src/eval/stt-eval.ts",
+    "preflight": "tsx src/eval/preflight.ts",
+    "build:desktop": "npm run build && node scripts/build-desktop.mjs",
+    "desktop": "npm run build:desktop && electron .",
+    "desktop:package": "npm run build:desktop && electron-builder --publish never"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "ical.js": "^2.2.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.5",
+    "electron": "^42.11.11",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  },
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "app.meetingcopilot.desktop",
+    "productName": "Meeting Copilot",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Meeting Copilot 需要麦克风来转写你在会议中的发言。",
+        "NSAudioCaptureUsageDescription": "Meeting Copilot 需要采集系统声音来转写会议中对方的发言。"
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
+  }
+}
