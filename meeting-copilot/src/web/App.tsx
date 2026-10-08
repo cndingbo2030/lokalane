@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { CalendarEvent } from '../shared/calendar.ts'
 import { parseMeetingLink } from '../shared/meetingLink.ts'
 import { encodeAudioFrame, type AudioSource, type FeedbackRating, type MeetingPlatform, type SessionConfig } from '../shared/protocol.ts'
 import { AudioEngine, CaptureError } from './audio/engine.ts'
+import { mergeBriefIntoForm, requestBrief, stripGenerated } from './brief.ts'
+import { formatEventTime } from './calendar/feeds.ts'
+import { useCalendar } from './calendar/useCalendar.ts'
 import { CopilotPane } from './components/CopilotPane.tsx'
 import { DesktopSettingsPanel } from './components/DesktopSettingsPanel.tsx'
 import { HistoryPanel, MeetingViewer } from './components/HistoryPanel.tsx'
+import { IntegrationsPanel } from './components/IntegrationsManager.tsx'
 import { Markdown } from './components/Markdown.tsx'
 import { MetricsBar } from './components/MetricsBar.tsx'
+import { OutcomesPanel, type OutcomesContext } from './components/OutcomesPanel.tsx'
 import { defaultForm, SetupPanel, type SetupForm } from './components/SetupPanel.tsx'
 import { TranscriptPane } from './components/TranscriptPane.tsx'
+import { UpcomingPanel } from './components/UpcomingPanel.tsx'
 import { desktop } from './desktop.ts'
 import { meetingHistory } from './history/db.ts'
-import { buildRecord, type MeetingRecord } from './history/model.ts'
+import { buildRecord, PLATFORM_TITLES, relatedMeetings, titleFromSummary, type MeetingRecord } from './history/model.ts'
 import { CopilotConnection, serverUrl, type ConnectionStatus } from './net/connection.ts'
+import { downloadFile } from './outcomes/export.ts'
+import { useIntegrations } from './outcomes/useIntegrations.ts'
 import { deriveOverlayState } from './overlay/overlayState.ts'
 import { OverlayView } from './overlay/OverlayView.tsx'
 import { usePictureInPicture } from './overlay/usePictureInPicture.ts'
@@ -53,6 +62,8 @@ interface MeetingMeta {
   startedAt: number
   endedAt?: number
   demo: boolean
+  /** The calendar meeting it was prepared from. */
+  event?: CalendarEvent
 }
 
 export function App() {
@@ -65,12 +76,65 @@ export function App() {
   const [now, setNow] = useState(() => Date.now())
   const [history, setHistory] = useState<MeetingRecord[]>([])
   const [viewing, setViewing] = useState<MeetingRecord | null>(null)
+  const [preparedEvent, setPreparedEvent] = useState<CalendarEvent | null>(null)
+  const [briefStatus, setBriefStatus] = useState<{ status: 'idle' | 'loading' | 'done' | 'error'; message?: string }>({ status: 'idle' })
+  const { integrations, setIntegrations } = useIntegrations()
 
   const connectionRef = useRef<CopilotConnection | null>(null)
   const engineRef = useRef<AudioEngine | null>(null)
   const levelBuffer = useRef<Record<AudioSource, number>>({ me: 0, remote: 0 })
 
   const parsed = useMemo(() => parseMeetingLink(form.link), [form.link])
+
+  /** Fill the setup from a calendar meeting; optionally open the meeting itself. */
+  const prepare = (event: CalendarEvent, join = false) => {
+    setPreparedEvent(event)
+    setBriefStatus({ status: 'idle' })
+    setViewing(null)
+    if (event.meeting) setForm((f) => ({ ...f, link: event.meeting!.url }))
+    // Browser: opens the web client in a new tab. Desktop: the OS opens the native meeting app.
+    if (join && event.meeting) window.open(event.meeting.url, '_blank', 'noopener')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const calendar = useCalendar((event) => prepare(event, true))
+
+  const generateBrief = async () => {
+    setBriefStatus({ status: 'loading' })
+    try {
+      const related = preparedEvent ? relatedMeetings(history, preparedEvent) : []
+      const draft = await requestBrief({
+        event: preparedEvent
+          ? {
+              title: preparedEvent.title,
+              start: preparedEvent.start,
+              end: preparedEvent.end,
+              description: preparedEvent.description,
+              location: preparedEvent.location,
+              organizer: preparedEvent.organizer,
+              attendees: preparedEvent.attendees,
+            }
+          : undefined,
+        meetingUrl: parsed?.url,
+        notes: { myRole: form.myRole, goal: form.goal, context: stripGenerated(form.context) },
+        pastMeetings: related.map((record) => ({
+          title: record.title,
+          date: new Date(record.startedAt).toISOString().slice(0, 10),
+          summary: record.summary,
+          openActionItems: (record.outcomes?.actionItems ?? []).filter((item) => !item.done).map((item) => `${item.owner}：${item.task}`),
+        })),
+        documents: form.documents,
+        targetLanguage: form.targetLanguage,
+      })
+      setForm((f) => mergeBriefIntoForm(f, draft))
+      setBriefStatus({ status: 'done', message: related.length ? `参考了 ${related.length} 场历史会议` : undefined })
+    } catch (error) {
+      setBriefStatus({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  const prepareFromCalendar = (event: CalendarEvent, join = false) => {
+    prepare(event, join)
+    if (calendar.reminder?.id === event.id) calendar.dismissReminder()
+  }
   const overlayState = useMemo(() => deriveOverlayState(state), [state])
   const pip = usePictureInPicture()
   const ask = () => connectionRef.current?.send({ type: 'ask' })
@@ -135,6 +199,10 @@ export function App() {
       startedAt: meeting.startedAt,
       endedAt: meeting.endedAt,
       targetLanguage: form.targetLanguage,
+      seriesId: meeting.event?.seriesId,
+      eventTitle: meeting.event?.title,
+      attendees: meeting.event?.attendees.map((a) => a.name ?? a.email ?? '').filter(Boolean),
+      attendeeEmails: meeting.event?.attendees.map((a) => a.email ?? '').filter(Boolean),
     }, { demo: meeting.demo })
     const timer = window.setTimeout(() => {
       meetingHistory
@@ -154,6 +222,11 @@ export function App() {
     copilot: { enabled: form.copilot, autoTrigger: form.autoTrigger },
     brief: { myRole: form.myRole, goal: form.goal, context: form.context },
     documents: form.documents,
+    meeting: preparedEvent
+      ? { title: preparedEvent.title, attendees: preparedEvent.attendees.map((a) => a.name ?? a.email ?? '').filter(Boolean) }
+      : undefined,
+    // Lets the outcome extraction resolve "next Friday" to a date.
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 
   const openConnection = (config: SessionConfig, onOpen?: () => void) => {
@@ -177,7 +250,7 @@ export function App() {
     dispatch({ type: 'reset' })
     dispatch({ type: 'phase', phase: 'connecting' })
     setRecordingUrl(null)
-    setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo })
+    setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo, event: preparedEvent ?? undefined })
   }
 
   const start = async () => {
@@ -228,6 +301,7 @@ export function App() {
 
   const newMeeting = () => {
     pip.close()
+    setPreparedEvent(null)
     connectionRef.current?.close()
     connectionRef.current = null
     setMeeting(null)
@@ -250,15 +324,11 @@ export function App() {
   }
 
   const downloadTranscript = () => {
-    const blob = new Blob([transcriptToMarkdown(state) + (state.summary.text ? `\n\n---\n\n${state.summary.text}\n` : '')], {
-      type: 'text/markdown;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `meeting-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadFile(
+      `meeting-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`,
+      transcriptToMarkdown(state) + (state.summary.text ? `\n\n---\n\n${state.summary.text}\n` : ''),
+      'text/markdown;charset=utf-8',
+    )
   }
 
   const deleteRecord = (record: MeetingRecord) => {
@@ -266,6 +336,26 @@ export function App() {
     setHistory((h) => h.filter((r) => r.id !== record.id))
     meetingHistory.remove(record.id).catch(() => {})
   }
+
+  const updateRecord = (record: MeetingRecord) => {
+    setViewing(record)
+    setHistory((h) => h.map((r) => (r.id === record.id ? record : r)))
+    meetingHistory.save(record).catch(() => {})
+  }
+
+  const outcomesContext = useMemo<OutcomesContext>(
+    () => ({
+      id: state.sessionId ?? 'meeting',
+      title: meeting?.event?.title || titleFromSummary(state.summary.text) || (meeting?.demo ? '演示会议' : PLATFORM_TITLES[meeting?.platform ?? 'unknown']),
+      startedAt: meeting?.startedAt ?? 0,
+      endedAt: meeting?.endedAt,
+      attendees: meeting?.event?.attendees.map((a) => a.name ?? a.email ?? '').filter(Boolean) ?? [],
+      attendeeEmails: meeting?.event?.attendees.map((a) => a.email ?? '').filter(Boolean) ?? [],
+      language: form.targetLanguage,
+      summary: state.summary.status === 'done' ? state.summary.text : '',
+    }),
+    [state.sessionId, state.summary.status, state.summary.text, meeting, form.targetLanguage],
+  )
 
   const inMeeting = state.phase === 'connecting' || state.phase === 'live' || state.phase === 'ended'
   const elapsed = meeting ? Math.max(0, Math.floor(((meeting.endedAt ?? now) - meeting.startedAt) / 1000)) : 0
@@ -311,11 +401,66 @@ export function App() {
         </div>
       )}
 
-      {!inMeeting && viewing && <MeetingViewer record={viewing} onClose={() => setViewing(null)} onDelete={deleteRecord} />}
+      {!inMeeting && viewing && (
+        <MeetingViewer
+          record={viewing}
+          onClose={() => setViewing(null)}
+          onDelete={deleteRecord}
+          onUpdate={updateRecord}
+          integrations={integrations}
+          onIntegrationsChange={setIntegrations}
+        />
+      )}
+
+      {!inMeeting && calendar.reminder && (
+        <div className="reminder" role="status">
+          <span>
+            ⏰ 「{calendar.reminder.title}」{formatEventTime(calendar.reminder)}
+          </span>
+          <div className="actions">
+            <button type="button" className="button secondary" onClick={() => prepareFromCalendar(calendar.reminder!)}>
+              准备
+            </button>
+            {calendar.reminder.meeting && (
+              <button type="button" className="button secondary" onClick={() => prepareFromCalendar(calendar.reminder!, true)}>
+                加入并准备
+              </button>
+            )}
+            <button type="button" className="button secondary" onClick={calendar.dismissReminder}>
+              忽略
+            </button>
+          </div>
+        </div>
+      )}
 
       {!inMeeting && !viewing && (
         <>
-          <SetupPanel form={form} onChange={setForm} parsed={parsed} busy={false} onStart={() => void start()} onDemo={startDemo} desktop={Boolean(desktop)} />
+          <UpcomingPanel
+            feeds={calendar.feeds}
+            onFeedsChange={calendar.setFeeds}
+            events={calendar.events}
+            errors={calendar.errors}
+            loading={calendar.loading}
+            preparedId={preparedEvent?.id}
+            onRefresh={() => void calendar.refresh()}
+            onPrepare={prepareFromCalendar}
+            notifications={calendar.permission}
+            onEnableNotifications={() => void calendar.enableNotifications()}
+          />
+          <SetupPanel
+            form={form}
+            onChange={setForm}
+            parsed={parsed}
+            busy={false}
+            onStart={() => void start()}
+            onDemo={startDemo}
+            desktop={Boolean(desktop)}
+            linkedEvent={preparedEvent ? { title: preparedEvent.title, when: formatEventTime(preparedEvent), attendees: preparedEvent.attendees.length } : null}
+            onUnlinkEvent={() => setPreparedEvent(null)}
+            onGenerateBrief={() => void generateBrief()}
+            briefStatus={briefStatus}
+          />
+          <IntegrationsPanel integrations={integrations} onChange={setIntegrations} language={form.targetLanguage} />
           <DesktopSettingsPanel />
           <HistoryPanel records={history} onOpen={setViewing} />
         </>
@@ -388,6 +533,17 @@ export function App() {
               {state.summary.error && <p className="error-text">{state.summary.error}</p>}
             </section>
           )}
+
+          <OutcomesPanel
+            status={state.outcomes.status}
+            outcomes={state.outcomes.data}
+            error={state.outcomes.error}
+            context={outcomesContext}
+            onToggle={(id) => dispatch({ type: 'toggleActionItem', id })}
+            integrations={integrations}
+            onIntegrationsChange={setIntegrations}
+            autoSend
+          />
         </main>
       )}
     </div>

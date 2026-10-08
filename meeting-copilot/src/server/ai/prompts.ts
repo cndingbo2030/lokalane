@@ -1,13 +1,16 @@
 import { LANGUAGE_NAMES } from '../../shared/language.ts'
-import type { LanguageCode, MeetingBrief, SuggestionKind } from '../../shared/protocol.ts'
+import type { LanguageCode, MeetingBrief, MeetingInfo, SuggestionKind } from '../../shared/protocol.ts'
 
 type Target = Exclude<LanguageCode, 'auto'>
 
 const LATENCY_HINT = 'Latency-sensitive; begin your visible answer immediately.'
 
 /** Rendered once per session and cached by the API (stable prefix). */
-export function briefBlock(brief: MeetingBrief): string | undefined {
+export function briefBlock(brief: MeetingBrief, meeting?: MeetingInfo): string | undefined {
+  const attendees = meeting?.attendees?.filter(Boolean) ?? []
   const parts = [
+    meeting?.title?.trim() && `<meeting_title>\n${meeting.title.trim()}\n</meeting_title>`,
+    attendees.length > 0 && `<invited_participants>\n${attendees.join('\n')}\n</invited_participants>`,
     brief.myRole.trim() && `<my_role>\n${brief.myRole.trim()}\n</my_role>`,
     brief.goal.trim() && `<meeting_goal>\n${brief.goal.trim()}\n</meeting_goal>`,
     brief.context.trim() && `<background_knowledge>\n${brief.context.trim()}\n</background_knowledge>`,
@@ -84,23 +87,44 @@ export function copilotPrompt(kind: SuggestionKind, transcript: string, focus: s
     .join('\n\n')
 }
 
-export function summarySystem(target: Target): string {
+/**
+ * Shared by the summary and the outcome extraction: identical system prompt and
+ * transcript block, so the second call reads the whole transcript from the cache.
+ */
+export function analystSystem(target: Target): string {
   const language = LANGUAGE_NAMES[target].english
   return [
-    '[role:summarizer]',
-    `You write post-meeting notes in ${language} from a speech-recognition transcript. Lines marked 我(ME) are the user; 对方 lines are other participants (S1, S2… are diarized speakers).`,
-    'Be faithful to the transcript: do not invent decisions, owners or dates. Mark anything uncertain as such. Quote exact numbers.',
-    'Structure, using Markdown headings:',
+    '[role:analyst]',
+    `You analyze a business meeting from its speech-recognition transcript and write in ${language}.`,
+    'Lines marked 我(ME) are the user; 对方 lines are other participants (S1, S2… are diarized speakers, with names when known).',
+    'Be faithful to the transcript: never invent decisions, owners, dates or numbers; quote numbers exactly; mark anything uncertain as such.',
+    'Do the task given after the transcript.',
+  ].join('\n')
+}
+
+export function transcriptBlock(transcript: string): string {
+  return `<transcript>\n${transcript || '(empty)'}\n</transcript>`
+}
+
+export function summaryTask(target: Target): string {
+  return [
+    `Task: write the meeting notes in ${LANGUAGE_NAMES[target].english}, using these Markdown headings:`,
     '## 一句话总结 / TL;DR',
     '## 关键讨论点',
     '## 已达成的决定',
     '## 待办事项 (each: owner — task — due date if stated)',
     '## 未决问题与风险',
-    '## 跟进邮件草稿 (written in the language the other side mostly spoke)',
     'Translate the headings into the output language when it is not Chinese.',
   ].join('\n')
 }
 
-export function summaryPrompt(transcript: string): string {
-  return `<transcript>\n${transcript || '(empty)'}\n</transcript>\n\nWrite the meeting notes.`
+export function outcomesTask(target: Target, meetingDate: string): string {
+  return [
+    'Task: extract the meeting outcomes as JSON.',
+    '- decisions: what the participants actually agreed on (not proposals or open questions).',
+    '- actionItems: concrete follow-ups someone committed to. owner: "我" when the user (我(ME)) committed; otherwise the participant’s name, or their label when unnamed (e.g. 对方(S1)); "待定" when unclear. due: YYYY-MM-DD when a date or a relative day ("next Friday", "下周三") was stated — resolve it against the meeting date — otherwise an empty string.',
+    '- followUpEmail: a short, polite follow-up email from the user to the other side, in the language the other side mostly spoke: thanks, the decisions, the action items with owners and dates, the next step. Plain text; subject and body.',
+    `Write decisions and action items in ${LANGUAGE_NAMES[target].english}. Use empty arrays when there are none.`,
+    `Meeting date: ${meetingDate}.`,
+  ].join('\n')
 }

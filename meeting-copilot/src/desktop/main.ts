@@ -60,7 +60,8 @@ async function saveSettingsFile(next: StoredSettings): Promise<void> {
 async function startServer(): Promise<void> {
   token = randomBytes(24).toString('base64url')
   const env = serverEnv(settings, cipher, process.env)
-  const config = { ...loadConfig(env), accessToken: token, production: true, allowedOrigins: [] }
+  // The desktop app runs on the user's own machine: LAN calendars and self-hosted webhooks are fine.
+  const config = { ...loadConfig(env), accessToken: token, production: true, allowedOrigins: [], allowPrivateNetwork: true }
   copilot = createCopilotServer({ config, staticDir: path.join(appRoot, 'dist') })
   const port = await copilot.listen(0, '127.0.0.1')
   origin = `http://127.0.0.1:${port}`
@@ -215,10 +216,10 @@ function registerIpc(): void {
 function configureSession(): void {
   const ses = session.defaultSession
   // Microphone and screen/system-audio capture, for our own pages only.
-  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    callback((permission === 'media' || permission === 'display-capture' || permission === 'clipboard-sanitized-write') && isOurs(details.requestingUrl))
-  })
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => (permission === 'media' || permission === 'clipboard-sanitized-write') && isOurs(requestingOrigin))
+  const requestable = new Set(['media', 'display-capture', 'clipboard-sanitized-write', 'notifications'])
+  const checkable = new Set(['media', 'clipboard-sanitized-write', 'notifications'])
+  ses.setPermissionRequestHandler((_wc, permission, callback, details) => callback(requestable.has(permission) && isOurs(details.requestingUrl)))
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => checkable.has(permission) && isOurs(requestingOrigin))
 
   // getDisplayMedia() from the page → the primary screen plus system audio loopback.
   ses.setDisplayMediaRequestHandler((request, callback) => {

@@ -37,6 +37,14 @@ describe('buildRecord', () => {
     expect(buildRecord(initialState, meta, { demo: true }).title).toBe('演示会议 · 2026-10-07 09:30')
     expect(buildRecord({ ...initialState, summary: { status: 'done', text: summary } }, meta, { demo: true }).title).toBe('演示 · 双方同意下周启动新加坡试点')
   })
+
+  it('stores finished outcomes with their done state and the attendee emails', () => {
+    const outcomes = { decisions: ['d'], actionItems: [{ id: 'a1', owner: '我', task: 't', due: null, done: true }], followUpEmail: { subject: 's', body: 'b' } }
+    const record = buildRecord({ ...initialState, outcomes: { status: 'done', data: outcomes } }, { ...meta, attendeeEmails: ['a@example.com'] })
+    expect(record.outcomes).toEqual(outcomes)
+    expect(record.attendeeEmails).toEqual(['a@example.com'])
+    expect(buildRecord({ ...initialState, outcomes: { status: 'loading' } }, meta).outcomes).toBeUndefined()
+  })
 })
 
 describe('searchMeetings', () => {

@@ -23,6 +23,11 @@ export interface LlmTextRequest {
    * for a handful of per-meeting files, long context + caching beats building RAG.
    */
   documents?: DocumentRef[]
+  /**
+   * A large user-message prefix several calls share (e.g. the full transcript for
+   * the summary and the outcome extraction), cached after `documents`.
+   */
+  cachedPrompt?: string
   /** The volatile part: recent transcript + the task for this call. */
   prompt: string
   maxTokens: number
@@ -32,11 +37,22 @@ export interface LlmTextRequest {
   onUsage?: (usage: LlmUsage) => void
 }
 
-/** Minimal streaming-text interface so the pipeline can run against Claude or a mock. */
+export interface LlmJsonRequest extends LlmTextRequest {
+  /** JSON Schema the response must match (structured outputs). */
+  schema: Record<string, unknown>
+  /** Short task name, e.g. "brief" or "outcomes" (logs and the offline mock). */
+  task: string
+}
+
+/** Minimal interface so the pipeline can run against Claude or a mock. */
 export interface LlmClient {
   readonly name: string
   streamText(request: LlmTextRequest): AsyncIterable<string>
+  /** One structured response, validated against `schema` by the API. */
+  completeJson<T>(request: LlmJsonRequest): Promise<T>
 }
+
+export class LlmOutputError extends Error {}
 
 export class LlmRefusalError extends Error {
   constructor(readonly category: string | null) {

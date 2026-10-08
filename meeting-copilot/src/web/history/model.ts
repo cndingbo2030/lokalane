@@ -1,4 +1,6 @@
+import type { MeetingOutcomes } from '../../shared/outcomes.ts'
 import type { LanguageCode, MeetingPlatform, MetricsSnapshot, TranscriptSegment } from '../../shared/protocol.ts'
+import { summaryTldr } from '../../shared/summary.ts'
 import type { AppState, Suggestion } from '../state/reducer.ts'
 
 /** A finished meeting as stored in this browser (IndexedDB). Never sent to the server. */
@@ -15,9 +17,30 @@ export interface MeetingRecord {
   summary: string
   speakerNames: Record<string, string>
   metrics?: MetricsSnapshot
+  /** Calendar series (iCalendar UID): links occurrences of a recurring meeting. */
+  seriesId?: string
+  eventTitle?: string
+  /** Invited participants (names or emails), from the calendar. */
+  attendees?: string[]
+  /** Their email addresses, for the follow-up email. */
+  attendeeEmails?: string[]
+  /** Decisions, action items (with done state) and the follow-up email. */
+  outcomes?: MeetingOutcomes
 }
 
-const PLATFORM_TITLES: Record<MeetingPlatform, string> = {
+export interface RecordMeta {
+  id: string
+  platform: MeetingPlatform
+  startedAt: number
+  endedAt: number
+  targetLanguage: MeetingRecord['targetLanguage']
+  seriesId?: string
+  eventTitle?: string
+  attendees?: string[]
+  attendeeEmails?: string[]
+}
+
+export const PLATFORM_TITLES: Record<MeetingPlatform, string> = {
   'google-meet': 'Google Meet 会议',
   teams: 'Teams 会议',
   zoom: 'Zoom 会议',
@@ -25,11 +48,7 @@ const PLATFORM_TITLES: Record<MeetingPlatform, string> = {
   unknown: '会议',
 }
 
-export function buildRecord(
-  state: AppState,
-  meta: { id: string; platform: MeetingPlatform; startedAt: number; endedAt: number; targetLanguage: MeetingRecord['targetLanguage'] },
-  options: { demo?: boolean } = {},
-): MeetingRecord {
+export function buildRecord(state: AppState, meta: RecordMeta, options: { demo?: boolean } = {}): MeetingRecord {
   const segments = state.segments.filter((s) => s.isFinal)
   const tldr = titleFromSummary(state.summary.text)
   const translations = Object.fromEntries(Object.entries(state.translations).filter(([id]) => segments.some((s) => s.id === id)))
@@ -37,24 +56,41 @@ export function buildRecord(
     ...meta,
     title: tldr
       ? `${options.demo ? '演示 · ' : ''}${tldr}`
-      : `${options.demo ? '演示会议' : PLATFORM_TITLES[meta.platform]} · ${formatDate(meta.startedAt)}`,
+      : `${options.demo ? '演示会议' : (meta.eventTitle ?? PLATFORM_TITLES[meta.platform])} · ${formatDate(meta.startedAt)}`,
     segments,
     translations,
     suggestions: state.suggestions.filter((s) => s.done && s.text),
     summary: state.summary.status === 'done' ? state.summary.text : '',
     speakerNames: { ...state.speakerNames },
     metrics: state.metrics,
+    outcomes: state.outcomes.status === 'done' ? state.outcomes.data : undefined,
   }
 }
 
 /** Uses the summary's one-line TL;DR as the meeting title when there is one. */
 export function titleFromSummary(summary: string): string | undefined {
-  const lines = summary.split('\n').map((l) => l.trim())
-  const tldr = lines.findIndex((l) => /^#+\s*(一句话总结|TL;?DR)/i.test(l))
-  const candidate = (tldr >= 0 ? lines.slice(tldr + 1) : []).find((l) => l && !l.startsWith('#'))
-  if (!candidate) return undefined
-  const clean = candidate.replace(/^[-*•]\s*/, '').replace(/\*\*/g, '')
+  const clean = summaryTldr(summary)
+  if (!clean) return undefined
   return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean
+}
+
+/**
+ * Earlier meetings worth reading before this one: the same recurring series
+ * first, then meetings with the same people. Attendees present in most of the
+ * user's meetings (usually the user themself) do not count as a match.
+ */
+export function relatedMeetings(records: MeetingRecord[], event: { seriesId?: string; attendees: Array<{ name?: string; email?: string }> }, limit = 3): MeetingRecord[] {
+  const useful = records.filter((r) => r.summary.trim()).sort((a, b) => b.startedAt - a.startedAt)
+  const series = event.seriesId ? useful.filter((r) => r.seriesId === event.seriesId).slice(0, 2) : []
+
+  const key = (value: string) => value.trim().toLowerCase()
+  const frequency = new Map<string, number>()
+  for (const record of records) for (const a of new Set((record.attendees ?? []).map(key))) frequency.set(a, (frequency.get(a) ?? 0) + 1)
+  const ubiquitous = (a: string) => records.length >= 3 && (frequency.get(a) ?? 0) / records.length > 0.6
+  const wanted = new Set(event.attendees.flatMap((a) => [a.email, a.name]).filter((v): v is string => Boolean(v)).map(key).filter((a) => !ubiquitous(a)))
+  const sharedPeople = useful.filter((r) => !series.includes(r) && (r.attendees ?? []).some((a) => wanted.has(key(a))))
+
+  return [...series, ...sharedPeople].slice(0, limit)
 }
 
 export interface SearchHit {

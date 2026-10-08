@@ -140,15 +140,49 @@ describe('MeetingSession', () => {
     expect(llm.requests[0].prompt).toContain('对方: That quote is too expensive.')
   })
 
-  it('streams a summary over the whole transcript', async () => {
+  it('streams a summary, then extracts outcomes reusing the cached transcript prefix', async () => {
     const { session, messages, llm } = setup()
+    session.handleMessage({
+      type: 'start',
+      config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false }, timeZone: 'Asia/Singapore' },
+    })
+    session.onSttResult('remote', result('Let us sign next week.'))
+    session.handleMessage({ type: 'summary' })
+    await new Promise((r) => setTimeout(r, 50))
+    const types = messages.map((m) => m.type)
+    expect(types).toEqual(expect.arrayContaining(['summary.start', 'summary.delta', 'summary.done', 'outcomes.start', 'outcomes']))
+    expect(types.indexOf('outcomes.start')).toBeGreaterThan(types.indexOf('summary.done'))
+
+    const [summary, outcomes] = llm.requests
+    expect(summary.model).toBe('summary-model')
+    expect(summary.cachedPrompt).toContain('Let us sign next week.')
+    expect(summary.prompt).not.toContain('Let us sign next week.')
+    // Identical prefix (system, brief, transcript) so the second call is a cache hit.
+    expect(outcomes).toMatchObject({ task: 'outcomes', system: summary.system, cachedContext: summary.cachedContext, cachedPrompt: summary.cachedPrompt })
+    expect(outcomes.prompt).toMatch(/Meeting date: \d{4}-\d{2}-\d{2} \(\w+day\), time zone Asia\/Singapore/)
+
+    const done = messages.find((m) => m.type === 'outcomes')
+    expect(done?.type === 'outcomes' && done.outcomes?.actionItems[0]).toMatchObject({ id: 'a1', owner: '我', due: null })
+  })
+
+  it('reports an outcomes error without losing the summary', async () => {
+    const messages: ServerMessage[] = []
+    const llm = new MockLlm(undefined, () => {
+      throw new Error('boom')
+    })
+    const session = new MeetingSession({
+      send: (m) => messages.push(m),
+      stt: new FakeStt(),
+      llm,
+      models: { copilot: 'c', translate: 't', summary: 's' },
+      metricsIntervalMs: 0,
+    })
     session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false } } })
     session.onSttResult('remote', result('Let us sign next week.'))
     session.handleMessage({ type: 'summary' })
     await new Promise((r) => setTimeout(r, 50))
-    expect(messages.map((m) => m.type)).toEqual(expect.arrayContaining(['summary.start', 'summary.delta', 'summary.done']))
-    expect(llm.requests[0].model).toBe('summary-model')
-    expect(llm.requests[0].prompt).toContain('Let us sign next week.')
+    expect(messages.find((m) => m.type === 'summary.done')).toEqual({ type: 'summary.done' })
+    expect(messages.find((m) => m.type === 'outcomes')).toMatchObject({ type: 'outcomes', error: expect.stringContaining('boom') })
   })
 })
 
@@ -164,6 +198,18 @@ describe('MeetingSession phase 1', () => {
     expect(llm.requests[0].system).toContain('↳')
     const start = messages.find((m) => m.type === 'suggestion.start')
     expect(start?.type === 'suggestion.start' && start.trigger.replyLanguage).toBe('en')
+  })
+
+  it('adds the calendar meeting title and participants to the cached brief', async () => {
+    const { session, llm } = setup()
+    session.handleMessage({
+      type: 'start',
+      config: { ...baseConfig, translate: false, meeting: { title: 'Pilot review <script>', attendees: ['Wang Lei', '', 'Alice Tan'] } },
+    })
+    session.handleMessage({ type: 'ask', question: 'hi' })
+    await session.idle()
+    expect(llm.requests[0].cachedContext).toContain('<meeting_title>\nPilot review  script')
+    expect(llm.requests[0].cachedContext).toContain('<invited_participants>\nWang Lei\nAlice Tan')
   })
 
   it('uses speaker names in copilot prompts', async () => {
@@ -186,7 +232,7 @@ describe('MeetingSession phase 1', () => {
     expect(byRole('[role:translator]')[0].documents).toBeUndefined()
     expect(byRole('[role:copilot]')[0].documents).toEqual(docs)
     expect(byRole('[role:copilot]')[0].system).toContain('来源')
-    expect(byRole('[role:summarizer]')[0].documents).toEqual(docs)
+    expect(byRole('[role:analyst]')[0].documents).toEqual(docs)
   })
 
   it('drops malformed document refs from the client', () => {

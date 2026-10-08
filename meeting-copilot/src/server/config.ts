@@ -16,6 +16,11 @@ export interface ServerConfig {
   accessToken?: string
   allowedOrigins: string[]
   production: boolean
+  /**
+   * Let calendar feeds and webhooks reach private/LAN addresses. Off for servers
+   * (SSRF protection); the desktop app turns it on since it runs on the user's machine.
+   */
+  allowPrivateNetwork: boolean
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -48,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       .map((o) => o.trim())
       .filter(Boolean),
     production: env.NODE_ENV === 'production',
+    allowPrivateNetwork: env.ALLOW_PRIVATE_NETWORK === 'true',
   }
 }
 

@@ -1,5 +1,5 @@
 import type { AudioSource, LatencyStats, LlmRole, MetricsSnapshot, RoleMetrics } from '../shared/protocol.ts'
-import type { LlmClient, LlmTextRequest, LlmUsage } from './llm/types.ts'
+import type { LlmClient, LlmJsonRequest, LlmTextRequest, LlmUsage } from './llm/types.ts'
 
 /** USD per million tokens (list prices; cache writes are 5-minute TTL). Unknown models cost 0. */
 const PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
@@ -130,7 +130,32 @@ export class SessionMetrics {
 
   /** Wraps an LLM client so every call for `role` is timed and its usage recorded. */
   meter(llm: LlmClient, role: LlmRole): LlmClient {
-    return { name: llm.name, streamText: (request) => this.meteredStream(llm, role, request) }
+    return {
+      name: llm.name,
+      streamText: (request) => this.meteredStream(llm, role, request),
+      completeJson: (request) => this.meteredJson(llm, role, request),
+    }
+  }
+
+  private async meteredJson<T>(llm: LlmClient, role: LlmRole, request: LlmJsonRequest): Promise<T> {
+    const state = this.roles[role]
+    state.calls++
+    this.version++
+    try {
+      return await llm.completeJson<T>({
+        ...request,
+        onUsage: (usage) => {
+          this.addUsage(role, request.model, usage)
+          request.onUsage?.(usage)
+        },
+      })
+    } catch (error) {
+      if (!request.signal?.aborted) {
+        state.errors++
+        this.version++
+      }
+      throw error
+    }
   }
 
   private async *meteredStream(llm: LlmClient, role: LlmRole, request: LlmTextRequest): AsyncIterable<string> {

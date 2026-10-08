@@ -1,4 +1,4 @@
-import type { LlmClient, LlmTextRequest } from './types.ts'
+import type { LlmClient, LlmJsonRequest, LlmTextRequest } from './types.ts'
 
 /**
  * Deterministic stand-in used when no Anthropic credentials are configured, so
@@ -8,7 +8,18 @@ export class MockLlm implements LlmClient {
   readonly name = 'mock'
   readonly requests: LlmTextRequest[] = []
 
-  constructor(private readonly respond: (request: LlmTextRequest) => string = defaultResponse) {}
+  constructor(
+    private readonly respond: (request: LlmTextRequest) => string = defaultResponse,
+    private readonly respondJson: (request: LlmJsonRequest) => unknown = defaultJson,
+  ) {}
+
+  async completeJson<T>(request: LlmJsonRequest): Promise<T> {
+    this.requests.push(request)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const value = this.respondJson(request)
+    request.onUsage?.({ inputTokens: Math.ceil(inputChars(request) / 4), outputTokens: Math.ceil(JSON.stringify(value).length / 4), cacheReadTokens: 0, cacheWriteTokens: 0 })
+    return value as T
+  }
 
   async *streamText(request: LlmTextRequest): AsyncIterable<string> {
     this.requests.push(request)
@@ -19,8 +30,34 @@ export class MockLlm implements LlmClient {
       yield chunk
     }
     // Rough token estimate so metrics work offline (~4 chars per token).
-    const input = request.system.length + (request.cachedContext?.length ?? 0) + request.prompt.length
-    request.onUsage?.({ inputTokens: Math.ceil(input / 4), outputTokens: Math.ceil(text.length / 4), cacheReadTokens: 0, cacheWriteTokens: 0 })
+    request.onUsage?.({ inputTokens: Math.ceil(inputChars(request) / 4), outputTokens: Math.ceil(text.length / 4), cacheReadTokens: 0, cacheWriteTokens: 0 })
+  }
+}
+
+function inputChars(request: LlmTextRequest): number {
+  return request.system.length + (request.cachedContext?.length ?? 0) + (request.cachedPrompt?.length ?? 0) + request.prompt.length
+}
+
+function defaultJson(request: LlmJsonRequest): unknown {
+  switch (request.task) {
+    case 'brief':
+      return {
+        myRole: '',
+        goal: '（模拟）确认本次会议要达成的结果',
+        context: '（模拟）配置 ANTHROPIC_API_KEY 后，这里会根据日历、历史会议和参考文件生成真实简报。',
+        agenda: ['（模拟）回顾上次会议待办', '（模拟）讨论报价与试点范围'],
+        anticipatedQuestions: [{ question: '（模拟）你们的价格包含哪些服务？', answer: '（模拟）请参考报价单回答（待确认）' }],
+        openItems: [],
+        risks: ['（模拟）不要在会上承诺未经批准的折扣'],
+      }
+    case 'outcomes':
+      return {
+        decisions: ['（模拟）双方同意推进试点'],
+        actionItems: [{ owner: '我', task: '（模拟）发送报价单和试点方案', due: null }],
+        followUpEmail: { subject: '（模拟）会议跟进', body: '（模拟）感谢参会，附上会议纪要与下一步安排。' },
+      }
+    default:
+      return {}
   }
 }
 

@@ -69,6 +69,30 @@ describe('reducer', () => {
     expect(state.speakerNames).toEqual({})
   })
 
+  it('tracks outcomes, lets the user tick action items off and resets on a new summary', () => {
+    const outcomes = {
+      decisions: ['推进试点'],
+      actionItems: [
+        { id: 'a1', owner: '我', task: '发送报价单', due: '2026-10-09' },
+        { id: 'a2', owner: 'S1', task: '确认预算', due: null },
+      ],
+      followUpEmail: { subject: '跟进', body: '感谢' },
+    }
+    let state = server(initialState, { type: 'outcomes.start' })
+    expect(state.outcomes).toEqual({ status: 'loading' })
+    state = server(state, { type: 'outcomes', outcomes })
+    expect(state.outcomes.status).toBe('done')
+    state = reducer(state, { type: 'toggleActionItem', id: 'a2' })
+    expect(state.outcomes.data?.actionItems.map((i) => Boolean(i.done))).toEqual([false, true])
+    state = reducer(state, { type: 'toggleActionItem', id: 'a2' })
+    expect(state.outcomes.data?.actionItems[1].done).toBe(false)
+
+    state = server(state, { type: 'summary.start' })
+    expect(state.outcomes).toEqual({ status: 'idle' })
+    state = server(state, { type: 'outcomes', error: 'model refused' })
+    expect(state.outcomes).toEqual({ status: 'error', error: 'model refused' })
+  })
+
   it('exports finals with translations as markdown', () => {
     let state = server(initialState, { type: 'transcript', segment: segment('a', 'Hello', true) })
     state = server(state, { type: 'transcript', segment: segment('b', 'partial', false) })

@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { parseMeetingLink } from './meetingLink.ts'
+import { extractMeetingLink, parseMeetingLink } from './meetingLink.ts'
+
+describe('extractMeetingLink', () => {
+  it('skips help and download links and prefers links with a meeting id', () => {
+    const google = 'Join with Google Meet: https://meet.google.com/abc-defg-hij\nLearn more: https://support.google.com/a/users/answer/9282720'
+    expect(extractMeetingLink('https://support.google.com/x', google)?.meetingId).toBe('abc-defg-hij')
+
+    const tencent = '下载客户端 https://meeting.tencent.com/download\n点击入会 https://meeting.tencent.com/dm/Qw3rTy9'
+    expect(extractMeetingLink(tencent)?.meetingId).toBe('Qw3rTy9')
+
+    const teams = 'Need help? https://aka.ms/JoinTeamsMeeting\nJoin: <https://teams.microsoft.com/l/meetup-join/19%3ameeting_X%40thread.v2/0?context=%7b%7d>.'
+    expect(extractMeetingLink(teams)?.platform).toBe('teams')
+  })
+
+  it('searches fields in priority order and returns null without a meeting link', () => {
+    expect(extractMeetingLink(undefined, 'https://zoom.us/j/81234567890?pwd=x', 'https://meet.google.com/abc-defg-hij')?.platform).toBe('zoom')
+    expect(extractMeetingLink('Room 3A', 'https://example.com/agenda')).toBeNull()
+  })
+})
 
 describe('parseMeetingLink', () => {
   it('detects Google Meet codes', () => {

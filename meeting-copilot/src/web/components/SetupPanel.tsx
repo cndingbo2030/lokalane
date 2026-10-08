@@ -64,9 +64,14 @@ interface Props {
   onDemo: () => void
   /** Running inside the desktop app: offers system-audio capture. */
   desktop?: boolean
+  /** The calendar meeting this setup was prepared from. */
+  linkedEvent?: { title: string; when: string; attendees: number } | null
+  onUnlinkEvent?: () => void
+  onGenerateBrief?: () => void
+  briefStatus?: { status: 'idle' | 'loading' | 'done' | 'error'; message?: string }
 }
 
-export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desktop = false }: Props) {
+export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desktop = false, linkedEvent, onUnlinkEvent, onGenerateBrief, briefStatus }: Props) {
   const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => onChange((f) => ({ ...f, [key]: value }))
   const [uploading, setUploading] = useState<string[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -106,6 +111,19 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
         <h2>
           <span className="step">1</span>会议链接
         </h2>
+        {linkedEvent && (
+          <div className="linked-event">
+            <span>
+              📅 已关联：<b>{linkedEvent.title}</b> · {linkedEvent.when}
+              {linkedEvent.attendees > 0 ? ` · ${linkedEvent.attendees} 位参会人` : ''}
+            </span>
+            {onUnlinkEvent && (
+              <button type="button" className="link-button" onClick={onUnlinkEvent}>
+                取消关联
+              </button>
+            )}
+          </div>
+        )}
         <textarea
           className="link-input"
           rows={2}
@@ -178,9 +196,27 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
       </section>
 
       <section className="card wide">
-        <h2>
-          <span className="step">3</span>会前简报 <span className="muted small">（让 AI 的建议有据可依）</span>
-        </h2>
+        <div className="history-header">
+          <h2>
+            <span className="step">3</span>会前简报 <span className="muted small">（让 AI 的建议有据可依）</span>
+          </h2>
+          {onGenerateBrief && (
+            <button
+              type="button"
+              className="button secondary"
+              disabled={briefStatus?.status === 'loading' || !(linkedEvent || form.goal.trim() || form.context.trim())}
+              title={linkedEvent ? '根据日历会议、历史会议和参考文件生成' : '先关联日历会议，或填写会议目标/背景资料'}
+              onClick={onGenerateBrief}
+            >
+              {briefStatus?.status === 'loading' ? '正在生成…' : '✨ AI 生成会前简报'}
+            </button>
+          )}
+        </div>
+        {briefStatus?.status === 'loading' && <p className="muted small">正在根据日历、历史会议和参考文件准备简报，通常需要 10–30 秒…</p>}
+        {briefStatus?.status === 'done' && (
+          <p className="muted small">已生成{briefStatus.message ? `（${briefStatus.message}）` : ''}：可直接修改；「预计问题与建议回答」会在会议中供 AI 参考。重新生成只替换 AI 部分。</p>
+        )}
+        {briefStatus?.status === 'error' && <p className="error-text">{briefStatus.message}</p>}
         <div className="brief-grid">
           <label>
             <span className="field-label">我的角色</span>

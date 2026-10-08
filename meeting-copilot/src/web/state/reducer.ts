@@ -1,3 +1,4 @@
+import type { MeetingOutcomes } from '../../shared/outcomes.ts'
 import type { FeedbackRating, MetricsSnapshot, ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
 
 export type Phase = 'setup' | 'connecting' | 'live' | 'ended'
@@ -21,6 +22,8 @@ export interface AppState {
   /** Newest first. */
   suggestions: Suggestion[]
   summary: { status: 'idle' | 'streaming' | 'done' | 'error'; text: string; error?: string }
+  /** Decisions, action items and follow-up email, extracted after the summary. */
+  outcomes: { status: 'idle' | 'loading' | 'done' | 'error'; data?: MeetingOutcomes; error?: string }
   errors: Array<{ id: number; message: string }>
   /** Display names for diarized speakers, e.g. { S1: '王总' }. */
   speakerNames: Record<string, string>
@@ -34,6 +37,7 @@ export type Action =
   | { type: 'dismissError'; id: number }
   | { type: 'rate'; id: string; rating: FeedbackRating | null }
   | { type: 'renameSpeaker'; speaker: string; name: string }
+  | { type: 'toggleActionItem'; id: string }
   | { type: 'reset' }
 
 export const initialState: AppState = {
@@ -42,6 +46,7 @@ export const initialState: AppState = {
   translations: {},
   suggestions: [],
   summary: { status: 'idle', text: '' },
+  outcomes: { status: 'idle' },
   errors: [],
   speakerNames: {},
 }
@@ -67,6 +72,12 @@ export function reducer(state: AppState, action: Action): AppState {
       if (name) speakerNames[action.speaker] = name
       else delete speakerNames[action.speaker]
       return { ...state, speakerNames }
+    }
+    case 'toggleActionItem': {
+      const data = state.outcomes.data
+      if (!data) return state
+      const actionItems = data.actionItems.map((item) => (item.id === action.id ? { ...item, done: !item.done } : item))
+      return { ...state, outcomes: { ...state.outcomes, data: { ...data, actionItems } } }
     }
     case 'server':
       return applyServerMessage(state, action.message)
@@ -97,7 +108,7 @@ function applyServerMessage(state: AppState, message: ServerMessage): AppState {
     case 'suggestion.done':
       return updateSuggestion(state, message.id, (s) => ({ ...s, done: true, error: message.error }))
     case 'summary.start':
-      return { ...state, summary: { status: 'streaming', text: '' } }
+      return { ...state, summary: { status: 'streaming', text: '' }, outcomes: { status: 'idle' } }
     case 'summary.delta':
       return { ...state, summary: { ...state.summary, text: state.summary.text + message.delta } }
     case 'summary.done':
@@ -106,6 +117,13 @@ function applyServerMessage(state: AppState, message: ServerMessage): AppState {
         summary: message.error
           ? { ...state.summary, status: 'error', error: message.error }
           : { ...state.summary, status: 'done' },
+      }
+    case 'outcomes.start':
+      return { ...state, outcomes: { status: 'loading' } }
+    case 'outcomes':
+      return {
+        ...state,
+        outcomes: message.outcomes ? { status: 'done', data: message.outcomes } : { status: 'error', error: message.error ?? '未能提取会议结果' },
       }
     case 'metrics':
       return { ...state, metrics: message.metrics }

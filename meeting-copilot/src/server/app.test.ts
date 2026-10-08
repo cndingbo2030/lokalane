@@ -4,6 +4,7 @@ import WebSocket from 'ws'
 import type { ClientMessage, ServerMessage, SessionConfig } from '../shared/protocol.ts'
 import { createCopilotServer, resolveStaticPath, type CopilotServer } from './app.ts'
 import { loadConfig } from './config.ts'
+import { DeliveryService } from './delivery.ts'
 import { MockLlm } from './llm/mock.ts'
 import { MemoryDocumentStore } from './documents.ts'
 import { ResumableChannel } from './registry.ts'
@@ -26,13 +27,14 @@ afterEach(async () => {
   running = null
 })
 
-async function start(env: Record<string, string> = {}) {
+async function start(env: Record<string, string> = {}, extra: { delivery?: DeliveryService } = {}) {
   running = createCopilotServer({
     config: loadConfig({ PORT: '0', ...env }),
     stt: nullStt,
     llm: new MockLlm(),
     documents: new MemoryDocumentStore(),
     log: { log: () => {}, warn: () => {}, error: () => {} },
+    ...extra,
   })
   const port = await running.listen(0, '127.0.0.1')
   return { server: running, url: (query = '') => `ws://127.0.0.1:${port}/ws${query}` }
@@ -115,6 +117,57 @@ describe('copilot server', () => {
     const ok = connect(url('?token=secret'))
     await ok.opened
     await ok.close()
+  })
+})
+
+describe('JSON endpoints', () => {
+  it('generates a brief and maps validation errors to 400', async () => {
+    const { url } = await start()
+    const base = url().replace('ws://', 'http://').replace('/ws', '')
+    const ok = await fetch(`${base}/api/brief`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event: { title: 'Pilot review' }, targetLanguage: 'zh' }),
+    })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toMatchObject({ goal: expect.any(String), anticipatedQuestions: expect.any(Array) })
+
+    const bad = await fetch(`${base}/api/brief`, { method: 'POST', body: '{}' })
+    expect(bad.status).toBe(400)
+    expect(((await bad.json()) as { error: string }).error).toContain('日历')
+
+    const malformed = await fetch(`${base}/api/calendar/events`, { method: 'POST', body: 'not json' })
+    expect(malformed.status).toBe(400)
+  })
+
+  it('delivers meeting results through the webhook proxy', async () => {
+    const posted: string[] = []
+    const delivery = new DeliveryService({
+      fetch: async (target, options) => {
+        posted.push(`${target} ${String(options.body).slice(0, 20)}`)
+        return { status: 200, headers: {}, body: Buffer.from('ok'), url: target }
+      },
+    })
+    const { url } = await start({}, { delivery })
+    const base = url().replace('ws://', 'http://').replace('/ws', '')
+    const post = (body: unknown) => fetch(`${base}/api/deliver`, { method: 'POST', body: JSON.stringify(body) })
+    const payload = { title: 'Pilot', language: 'zh', outcomes: { decisions: [], actionItems: [], followUpEmail: { subject: '', body: '' } } }
+
+    const ok = await post({ target: { type: 'slack', url: 'https://hooks.slack.com/services/a/b/c' }, payload })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ ok: true })
+    expect(posted[0]).toMatch(/^https:\/\/hooks\.slack\.com\/services\/a\/b\/c \{/)
+
+    const wrong = await post({ target: { type: 'feishu', url: 'https://hooks.slack.com/services/a/b/c' }, payload })
+    expect(wrong.status).toBe(400)
+    expect(((await wrong.json()) as { error: string }).error).toContain('飞书')
+  })
+
+  it('requires the access token on JSON endpoints too', async () => {
+    const { url } = await start({ ACCESS_TOKEN: 'secret' })
+    const base = url().replace('ws://', 'http://').replace('/ws', '')
+    expect((await fetch(`${base}/api/brief`, { method: 'POST', body: '{}' })).status).toBe(403)
+    expect((await fetch(`${base}/api/deliver`, { method: 'POST', body: '{}' })).status).toBe(403)
   })
 })
 

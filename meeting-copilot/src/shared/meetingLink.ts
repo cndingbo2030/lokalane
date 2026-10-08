@@ -82,6 +82,26 @@ export function parseMeetingLink(input: string): ParsedMeetingLink | null {
   return build('unknown', url, undefined, undefined, false)
 }
 
+/**
+ * Finds the meeting link in calendar fields or invitation text, which usually
+ * contain several URLs (help pages, "download the app", dial-in pages…).
+ * Fields are searched in the order given; a known platform link with a
+ * meeting id wins over one without (e.g. meeting.tencent.com/download).
+ */
+export function extractMeetingLink(...texts: Array<string | undefined>): ParsedMeetingLink | null {
+  let fallback: ParsedMeetingLink | null = null
+  for (const text of texts) {
+    if (!text) continue
+    for (const match of text.matchAll(/https?:\/\/[^\s<>"'，。）)\]]+/gi)) {
+      const parsed = parseMeetingLink(match[0].replace(/[.,;:!?]+$/, ''))
+      if (!parsed || parsed.platform === 'unknown') continue
+      if (parsed.meetingId) return parsed
+      fallback ??= parsed
+    }
+  }
+  return fallback
+}
+
 function build(
   platform: MeetingPlatform,
   url: URL,

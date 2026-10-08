@@ -3,6 +3,7 @@ import type {
   AudioSource,
   ClientMessage,
   DocumentRef,
+  MeetingInfo,
   MetricsSnapshot,
   ServerMessage,
   SessionConfig,
@@ -12,7 +13,8 @@ import { AUDIO_SAMPLE_RATE, decodeAudioFrame } from '../shared/protocol.ts'
 import { AudioClock } from '../shared/vad.ts'
 import { Copilot } from './ai/copilot.ts'
 import { briefBlock } from './ai/prompts.ts'
-import { streamSummary } from './ai/summarizer.ts'
+import { describeMeetingDate } from './ai/outcomes.ts'
+import { extractOutcomes, streamSummary } from './ai/summarizer.ts'
 import { Translator } from './ai/translator.ts'
 import { playDemo } from './demo.ts'
 import { sanitizeDocuments } from './documents.ts'
@@ -53,6 +55,7 @@ export class MeetingSession {
   private readonly now: () => number
   private config: SessionConfig | null = null
   private documents: DocumentRef[] = []
+  private meetingInfo: MeetingInfo | undefined
   private speakerNames: Record<string, string> = {}
   private readonly streams = new Map<AudioSource, SttStream>()
   private readonly clocks: Record<AudioSource, AudioClock> = { me: new AudioClock(), remote: new AudioClock() }
@@ -60,6 +63,7 @@ export class MeetingSession {
   private readonly finalizedAt = new Map<string, number>()
   private readonly transcript = new TranscriptStore()
   private readonly triggers: TriggerDetector
+  private startedAt = 0
   private readonly metrics: SessionMetrics
   private translator: Translator | null = null
   private copilot: Copilot | null = null
@@ -149,10 +153,13 @@ export class MeetingSession {
       // A restart keeps the transcript but applies the new settings.
       this.translator?.stop()
       this.copilot?.stop()
+    } else {
+      this.startedAt = this.now()
     }
     this.config = config
     this.documents = sanitizeDocuments(config.documents)
-    const cachedContext = briefBlock(config.brief)
+    this.meetingInfo = sanitizeMeetingInfo(config.meeting)
+    const cachedContext = briefBlock(config.brief, this.meetingInfo)
     const names = () => this.speakerNames
 
     this.translator = config.translate
@@ -282,22 +289,34 @@ export class MeetingSession {
     this.summaryController?.abort()
     const controller = new AbortController()
     this.summaryController = controller
+    const analysis = {
+      llm: this.metrics.meter(this.deps.llm, 'summary'),
+      model: this.deps.models.summary,
+      target: this.config.targetLanguage,
+      transcript: this.transcript,
+      cachedContext: briefBlock(this.config.brief, this.meetingInfo),
+      documents: this.documents,
+      speakerNames: this.speakerNames,
+      signal: controller.signal,
+    }
     this.deps.send({ type: 'summary.start' })
     try {
-      await streamSummary({
-        llm: this.metrics.meter(this.deps.llm, 'summary'),
-        model: this.deps.models.summary,
-        target: this.config.targetLanguage,
-        transcript: this.transcript,
-        cachedContext: briefBlock(this.config.brief),
-        documents: this.documents,
-        speakerNames: this.speakerNames,
-        signal: controller.signal,
-        onDelta: (delta) => this.deps.send({ type: 'summary.delta', delta }),
-      })
-      if (!controller.signal.aborted) this.deps.send({ type: 'summary.done' })
+      await streamSummary({ ...analysis, onDelta: (delta) => this.deps.send({ type: 'summary.delta', delta }) })
+      if (controller.signal.aborted) return
+      this.deps.send({ type: 'summary.done' })
     } catch (error) {
       if (!controller.signal.aborted) this.deps.send({ type: 'summary.done', error: errorMessage(error) })
+      this.pushMetrics()
+      return
+    }
+
+    // Structured outcomes second: the transcript prefix is now cached.
+    this.deps.send({ type: 'outcomes.start' })
+    try {
+      const outcomes = await extractOutcomes({ ...analysis, meetingDate: describeMeetingDate(this.startedAt, this.config.timeZone) })
+      if (!controller.signal.aborted) this.deps.send({ type: 'outcomes', outcomes })
+    } catch (error) {
+      if (!controller.signal.aborted) this.deps.send({ type: 'outcomes', error: errorMessage(error) })
     }
     this.pushMetrics()
   }
@@ -316,6 +335,18 @@ export class MeetingSession {
     this.deps.log?.(message, error)
     this.deps.send({ type: 'error', message, recoverable: true })
   }
+}
+
+/** Calendar data comes from the client: keep it short and plain. */
+function sanitizeMeetingInfo(input: unknown): MeetingInfo | undefined {
+  if (typeof input !== 'object' || input === null) return undefined
+  const { title, attendees } = input as MeetingInfo
+  const clean = (value: unknown, max: number) => (typeof value === 'string' ? value.replace(/[\p{Cc}<>]/gu, ' ').trim().slice(0, max) : '')
+  const info: MeetingInfo = {}
+  if (clean(title, 200)) info.title = clean(title, 200)
+  const names = Array.isArray(attendees) ? attendees.map((a) => clean(a, 100)).filter(Boolean).slice(0, 30) : []
+  if (names.length) info.attendees = names
+  return info.title || info.attendees ? info : undefined
 }
 
 function errorMessage(error: unknown): string {

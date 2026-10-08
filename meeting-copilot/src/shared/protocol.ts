@@ -15,6 +15,8 @@
  * relying on diarization, and the copilot never "answers" the user's own words.
  */
 
+import type { MeetingOutcomes } from './outcomes.ts'
+
 export const AUDIO_SAMPLE_RATE = 16_000
 export const AUDIO_FRAME_MS = 100
 
@@ -60,6 +62,16 @@ export interface SessionConfig {
   brief: MeetingBrief
   /** Documents the copilot and summary may ground answers in (not sent to the translator). */
   documents?: DocumentRef[]
+  /** From the calendar event, when the meeting was prepared from one. */
+  meeting?: MeetingInfo
+  /** The user's IANA time zone, to resolve relative due dates ("next Friday"). */
+  timeZone?: string
+}
+
+export interface MeetingInfo {
+  title?: string
+  /** Display names (or emails) of invited participants. */
+  attendees?: string[]
 }
 
 export interface TranscriptSegment {
@@ -112,6 +124,8 @@ export type ServerMessage =
   | { type: 'summary.start' }
   | { type: 'summary.delta'; delta: string }
   | { type: 'summary.done'; error?: string }
+  | { type: 'outcomes.start' }
+  | { type: 'outcomes'; outcomes?: MeetingOutcomes; error?: string }
   | { type: 'metrics'; metrics: MetricsSnapshot }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'pong' }

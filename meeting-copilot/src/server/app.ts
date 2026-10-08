@@ -4,7 +4,11 @@ import type { AddressInfo } from 'node:net'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts'
+import { generateBrief } from './ai/brief.ts'
+import { CalendarService } from './calendar/service.ts'
 import type { ServerConfig } from './config.ts'
+import { DeliveryService } from './delivery.ts'
+import { ClientError } from './errors.ts'
 import { AnthropicDocumentStore, DocumentError, MAX_DOCUMENT_BYTES, MemoryDocumentStore, type DocumentStore } from './documents.ts'
 import { AnthropicLlm } from './llm/anthropic.ts'
 import { MockLlm } from './llm/mock.ts'
@@ -22,6 +26,8 @@ export interface CopilotServerOptions {
   stt?: SttProvider
   llm?: LlmClient
   documents?: DocumentStore
+  calendar?: CalendarService
+  delivery?: DeliveryService
   log?: Pick<Console, 'log' | 'warn' | 'error'>
   /** How long a disconnected meeting is kept for resumption. */
   resumeGraceMs?: number
@@ -58,11 +64,32 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
   const documents: DocumentStore = options.documents ?? (config.anthropicConfigured ? new AnthropicDocumentStore() : new MemoryDocumentStore())
   const staticDir = options.staticDir ? resolve(options.staticDir) : undefined
   const sessions = new SessionRegistry(options.resumeGraceMs)
+  const calendar = options.calendar ?? new CalendarService({ allowPrivateNetwork: config.allowPrivateNetwork })
+  const delivery = options.delivery ?? new DeliveryService({ allowPrivateNetwork: config.allowPrivateNetwork })
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/health') {
-      return sendJson(res, { ok: true, stt: stt.name, llm: llm.name, documents: documents.name, models: config.models, auth: Boolean(config.accessToken) })
+      return sendJson(res, {
+        ok: true,
+        stt: stt.name,
+        llm: llm.name,
+        documents: documents.name,
+        models: config.models,
+        auth: Boolean(config.accessToken),
+      })
+    }
+    if (url.pathname === '/api/calendar/events' && req.method === 'POST') {
+      void handleJson(req, res, url, (body) => calendar.events(body))
+      return
+    }
+    if (url.pathname === '/api/brief' && req.method === 'POST') {
+      void handleJson(req, res, url, (body) => generateBrief(llm, config.models.summary, body))
+      return
+    }
+    if (url.pathname === '/api/deliver' && req.method === 'POST') {
+      void handleJson(req, res, url, (body) => delivery.deliver(body))
+      return
     }
     if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/')) {
       void handleDocuments(req, res, url)
@@ -155,6 +182,24 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
       return !config.production && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(originHost)
     } catch {
       return false
+    }
+  }
+
+  /** JSON endpoints: same auth as the WebSocket, small bodies, typed client errors. */
+  async function handleJson(req: IncomingMessage, res: ServerResponse, url: URL, handler: (body: unknown) => Promise<unknown>): Promise<void> {
+    if (!isAllowed(req, url)) return sendJson(res, { error: 'forbidden' }, 403)
+    let body: unknown
+    try {
+      body = JSON.parse(Buffer.from(await readBody(req, 256 * 1024)).toString('utf8') || '{}')
+    } catch {
+      return sendJson(res, { error: '请求格式不正确' }, 400)
+    }
+    try {
+      sendJson(res, await handler(body))
+    } catch (error) {
+      if (error instanceof ClientError) return sendJson(res, { error: error.message }, error.status)
+      log.error(`[api] ${url.pathname}`, error)
+      sendJson(res, { error: '服务暂时不可用，请稍后重试' }, 500)
     }
   }
 

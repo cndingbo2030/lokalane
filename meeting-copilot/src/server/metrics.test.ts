@@ -20,6 +20,7 @@ describe('SessionMetrics', () => {
     const metrics = new SessionMetrics(() => now)
     const slow: LlmClient = {
       name: 'slow',
+      completeJson: async () => ({}) as never,
       async *streamText(request) {
         now += 800
         yield 'hello'
@@ -36,6 +37,9 @@ describe('SessionMetrics', () => {
     const metrics = new SessionMetrics()
     const failing: LlmClient = {
       name: 'x',
+      completeJson: async () => {
+        throw new Error('boom')
+      },
       // eslint-disable-next-line require-yield
       async *streamText() {
         throw new Error('boom')
@@ -59,6 +63,16 @@ describe('SessionMetrics', () => {
     metrics.rate('b', 'up')
     metrics.rate('b', null)
     expect(metrics.snapshot().suggestions).toMatchObject({ up: 0, down: 1 })
+  })
+
+  it('meters structured (JSON) calls too', async () => {
+    const metrics = new SessionMetrics()
+    const result = await metrics
+      .meter(new MockLlm(), 'summary')
+      .completeJson<{ decisions: string[] }>({ model: 'claude-opus-5-5', system: 's', prompt: 'p', maxTokens: 10, effort: 'low', schema: {}, task: 'outcomes' })
+    expect(result.decisions.length).toBeGreaterThan(0)
+    expect(metrics.snapshot().llm.summary).toMatchObject({ calls: 1, errors: 0 })
+    expect(metrics.snapshot().llm.summary.outputTokens).toBeGreaterThan(0)
   })
 
   it('works with the mock LLM usage estimate', async () => {

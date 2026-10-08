@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { formatDate, formatDuration, searchMeetings, type MeetingRecord } from '../history/model.ts'
+import { downloadFile } from '../outcomes/export.ts'
+import type { Integration } from '../outcomes/integrations.ts'
 import { transcriptToMarkdown } from '../state/reducer.ts'
 import { Markdown } from './Markdown.tsx'
+import { OutcomesPanel, type OutcomesContext } from './OutcomesPanel.tsx'
 import { TranscriptPane } from './TranscriptPane.tsx'
 
 interface ListProps {
@@ -29,6 +32,7 @@ export function HistoryPanel({ records, onOpen }: ListProps) {
               <span className="muted small">
                 {formatDate(record.startedAt)} · {formatDuration(record.endedAt - record.startedAt)} · {record.segments.length} 句
                 {record.summary ? ' · 有纪要' : ''}
+                {openItems(record) > 0 ? ` · ${openItems(record)} 项待办未完成` : ''}
               </span>
               {snippet && <span className="history-snippet">{snippet}</span>}
             </button>
@@ -39,21 +43,41 @@ export function HistoryPanel({ records, onOpen }: ListProps) {
   )
 }
 
+const openItems = (record: MeetingRecord) => record.outcomes?.actionItems.filter((i) => !i.done).length ?? 0
+
 interface ViewerProps {
   record: MeetingRecord
   onClose: () => void
   onDelete: (record: MeetingRecord) => void
+  /** Saves edits (ticked-off action items). */
+  onUpdate: (record: MeetingRecord) => void
+  integrations: Integration[]
+  onIntegrationsChange: (integrations: Integration[]) => void
 }
 
-export function MeetingViewer({ record, onClose, onDelete }: ViewerProps) {
+export function MeetingViewer({ record, onClose, onDelete, onUpdate, integrations, onIntegrationsChange }: ViewerProps) {
+  const context = useMemo<OutcomesContext>(
+    () => ({
+      id: record.id,
+      title: record.eventTitle ?? record.title,
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
+      attendees: record.attendees ?? [],
+      attendeeEmails: record.attendeeEmails ?? [],
+      language: record.targetLanguage,
+      summary: record.summary,
+    }),
+    [record],
+  )
+  const toggle = (id: string) => {
+    if (!record.outcomes) return
+    const actionItems = record.outcomes.actionItems.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
+    onUpdate({ ...record, outcomes: { ...record.outcomes, actionItems } })
+  }
+
   const download = () => {
     const body = transcriptToMarkdown(record) + (record.summary ? `\n\n---\n\n${record.summary}\n` : '')
-    const url = URL.createObjectURL(new Blob([`# ${record.title}\n\n${body}`], { type: 'text/markdown;charset=utf-8' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${record.title.replace(/[\\/:*?"<>|]/g, '_')}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadFile(`${record.title}.md`, `# ${record.title}\n\n${body}`, 'text/markdown;charset=utf-8')
   }
 
   return (
@@ -109,6 +133,16 @@ export function MeetingViewer({ record, onClose, onDelete }: ViewerProps) {
           </div>
         </section>
       </div>
+      {record.outcomes && (
+        <OutcomesPanel
+          status="done"
+          outcomes={record.outcomes}
+          context={context}
+          onToggle={toggle}
+          integrations={integrations}
+          onIntegrationsChange={onIntegrationsChange}
+        />
+      )}
     </main>
   )
 }
