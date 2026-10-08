@@ -16,6 +16,8 @@ export interface MeetingRecord {
   suggestions: Suggestion[]
   summary: string
   speakerNames: Record<string, string>
+  /** The diarized speaker who was the user. */
+  meSpeaker?: string
   metrics?: MetricsSnapshot
   /** Calendar series (iCalendar UID): links occurrences of a recurring meeting. */
   seriesId?: string
@@ -62,6 +64,7 @@ export function buildRecord(state: AppState, meta: RecordMeta, options: { demo?:
     suggestions: state.suggestions.filter((s) => s.done && s.text),
     summary: state.summary.status === 'done' ? state.summary.text : '',
     speakerNames: { ...state.speakerNames },
+    meSpeaker: state.meSpeaker,
     metrics: state.metrics,
     outcomes: state.outcomes.status === 'done' ? state.outcomes.data : undefined,
   }

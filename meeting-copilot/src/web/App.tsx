@@ -4,6 +4,7 @@ import type { CalendarEvent } from '../shared/calendar.ts'
 import { parseMeetingLink } from '../shared/meetingLink.ts'
 import { encodeAudioFrame, type AudioSource, type FeedbackRating, type MeetingPlatform, type SessionConfig } from '../shared/protocol.ts'
 import { AudioEngine, CaptureError } from './audio/engine.ts'
+import { botHint, botLabel, fetchServerInfo, isBotFinished, type ServerInfo } from './bot.ts'
 import { mergeBriefIntoForm, requestBrief, stripGenerated } from './brief.ts'
 import { formatEventTime } from './calendar/feeds.ts'
 import { useCalendar } from './calendar/useCalendar.ts'
@@ -15,6 +16,7 @@ import { Markdown } from './components/Markdown.tsx'
 import { MetricsBar } from './components/MetricsBar.tsx'
 import { OutcomesPanel, type OutcomesContext } from './components/OutcomesPanel.tsx'
 import { defaultForm, SetupPanel, type SetupForm } from './components/SetupPanel.tsx'
+import { SharePanel } from './components/SharePanel.tsx'
 import { TranscriptPane } from './components/TranscriptPane.tsx'
 import { UpcomingPanel } from './components/UpcomingPanel.tsx'
 import { desktop } from './desktop.ts'
@@ -62,6 +64,8 @@ interface MeetingMeta {
   startedAt: number
   endedAt?: number
   demo: boolean
+  /** A meeting bot joined the call (no capture on this device). */
+  bot?: boolean
   /** The calendar meeting it was prepared from. */
   event?: CalendarEvent
 }
@@ -79,12 +83,17 @@ export function App() {
   const [preparedEvent, setPreparedEvent] = useState<CalendarEvent | null>(null)
   const [briefStatus, setBriefStatus] = useState<{ status: 'idle' | 'loading' | 'done' | 'error'; message?: string }>({ status: 'idle' })
   const { integrations, setIntegrations } = useIntegrations()
+  const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
 
   const connectionRef = useRef<CopilotConnection | null>(null)
   const engineRef = useRef<AudioEngine | null>(null)
   const levelBuffer = useRef<Record<AudioSource, number>>({ me: 0, remote: 0 })
 
   const parsed = useMemo(() => parseMeetingLink(form.link), [form.link])
+  const botAvailable = serverInfo?.bot.enabled ?? false
+  // A saved "bot" choice falls back when this server cannot send bots.
+  const mode = form.mode === 'bot' && !botAvailable ? (desktop ? 'system' : 'tab') : form.mode
 
   /** Fill the setup from a calendar meeting; optionally open the meeting itself. */
   const prepare = (event: CalendarEvent, join = false) => {
@@ -165,6 +174,7 @@ export function App() {
       .list()
       .then(setHistory)
       .catch(() => {})
+    void fetchServerInfo().then(setServerInfo)
   }, [])
 
   useEffect(() => {
@@ -213,7 +223,7 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [state, meeting, form.saveHistory, form.targetLanguage])
 
-  const buildConfig = (): SessionConfig => ({
+  const buildConfig = (bot = false): SessionConfig => ({
     meetingUrl: parsed?.url,
     platform: parsed?.platform ?? 'unknown',
     spokenLanguages: form.spokenLanguages,
@@ -227,10 +237,13 @@ export function App() {
       : undefined,
     // Lets the outcome extraction resolve "next Friday" to a date.
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    bot: bot ? { name: form.botName } : undefined,
   })
 
   const openConnection = (config: SessionConfig, onOpen?: () => void) => {
     let opened = false
+    // Bot meetings continue without this device, so keep trying as long as the server keeps the session.
+    const options = config.bot ? { keepTryingMs: 14 * 60_000 } : {}
     const conn = new CopilotConnection(serverUrl(), { type: 'start', config }, {
       onMessage: (message) => dispatch({ type: 'server', message }),
       onStatus: (status) => {
@@ -240,27 +253,33 @@ export function App() {
           onOpen?.()
         }
       },
-    })
+    }, options)
     connectionRef.current = conn
     conn.connect()
     return conn
   }
 
-  const beginMeeting = (demo: boolean) => {
+  const beginMeeting = (demo: boolean, bot = false) => {
     dispatch({ type: 'reset' })
     dispatch({ type: 'phase', phase: 'connecting' })
     setRecordingUrl(null)
-    setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo, event: preparedEvent ?? undefined })
+    setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo, bot, event: preparedEvent ?? undefined })
   }
 
   const start = async () => {
+    if (mode === 'bot') {
+      // The server sends the bot; this device only shows the live results.
+      beginMeeting(false, true)
+      openConnection(buildConfig(true))
+      return
+    }
     beginMeeting(false)
     const engine = new AudioEngine()
     try {
       // Open the connection first, synchronously: the capture picker must open from the click gesture.
       const conn = openConnection(buildConfig())
       await engine.start(
-        form.mode,
+        mode,
         {
           onFrame: (source, pcm, captureMs) => conn.sendAudio(encodeAudioFrame(source, pcm, captureMs)),
           onLevel: (source, level) => {
@@ -299,8 +318,17 @@ export function App() {
     }
   }
 
+  // Bot mode: the meeting is over for us once the bot has left (host removed it, meeting ended) or failed.
+  const botFinished = state.phase === 'live' && Boolean(meeting?.bot) && isBotFinished(state.bot?.state)
+  useEffect(() => {
+    if (!botFinished) return
+    const timer = window.setTimeout(() => void stop(), 0)
+    return () => window.clearTimeout(timer)
+  })
+
   const newMeeting = () => {
     pip.close()
+    setShareOpen(false)
     setPreparedEvent(null)
     connectionRef.current?.close()
     connectionRef.current = null
@@ -315,7 +343,12 @@ export function App() {
     if (name.trim()) names[speaker] = name.trim()
     else delete names[speaker]
     dispatch({ type: 'renameSpeaker', speaker, name })
-    connectionRef.current?.send({ type: 'speakers', names })
+    connectionRef.current?.send({ type: 'speakers', names, me: state.meSpeaker })
+  }
+
+  const setMeSpeaker = (speaker: string | null) => {
+    dispatch({ type: 'setMeSpeaker', speaker })
+    connectionRef.current?.send({ type: 'speakers', names: state.speakerNames, me: speaker ?? undefined })
   }
 
   const rate = (id: string, rating: FeedbackRating | null) => {
@@ -378,6 +411,11 @@ export function App() {
                 {state.phase === 'connecting' ? '连接中' : state.phase === 'live' ? `● ${demo ? '演示中' : '进行中'} ${formatElapsed(elapsed)}` : '已结束'}
               </span>
               {connection === 'reconnecting' && <span className="pill warn">重连中…</span>}
+              {meeting?.bot && state.bot && (
+                <span className={`pill ${state.bot.state === 'joined_recording' ? 'live' : isBotFinished(state.bot.state) ? 'subtle' : 'warn'}`}>
+                  🤖 {botLabel(state.bot.state)}
+                </span>
+              )}
               {state.stt && (
                 <span className="pill subtle" title="语音识别 / 大模型">
                   {state.stt} · {state.llm}
@@ -400,6 +438,8 @@ export function App() {
           ))}
         </div>
       )}
+
+      {inMeeting && meeting?.bot && state.bot && botBanner(botHint(state.bot, form.botName))}
 
       {!inMeeting && viewing && (
         <MeetingViewer
@@ -448,13 +488,14 @@ export function App() {
             onEnableNotifications={() => void calendar.enableNotifications()}
           />
           <SetupPanel
-            form={form}
+            form={mode === form.mode ? form : { ...form, mode }}
             onChange={setForm}
             parsed={parsed}
             busy={false}
             onStart={() => void start()}
             onDemo={startDemo}
             desktop={Boolean(desktop)}
+            botAvailable={botAvailable}
             linkedEvent={preparedEvent ? { title: preparedEvent.title, when: formatEventTime(preparedEvent), attendees: preparedEvent.attendees.length } : null}
             onUnlinkEvent={() => setPreparedEvent(null)}
             onGenerateBrief={() => void generateBrief()}
@@ -470,7 +511,7 @@ export function App() {
         <main className="live">
           <div className="controls card">
             <div className="controls-left">
-              {!demo && state.phase === 'live' && (
+              {!demo && !meeting?.bot && state.phase === 'live' && (
                 <div className="meters">
                   {form.mode !== 'mic-only' && <Meter label="我" level={levels.me} />}
                   <Meter label={form.mode === 'mic-only' ? '现场' : '会议'} level={levels.remote} />
@@ -499,6 +540,17 @@ export function App() {
               <button type="button" className="button secondary" disabled={!state.segments.length} onClick={downloadTranscript}>
                 导出逐字稿
               </button>
+              {!desktop && (
+                <button
+                  type="button"
+                  className={`button secondary ${state.share?.token ? 'on' : ''}`}
+                  disabled={!state.sessionId}
+                  onClick={() => setShareOpen((open) => !open)}
+                  title="生成只读链接，让同事实时查看字幕和翻译"
+                >
+                  {state.share?.token ? `共享中${state.share.viewers ? ` · ${state.share.viewers} 人` : ''}` : '共享'}
+                </button>
+              )}
               {!desktop && pip.supported && (
                 <button type="button" className="button secondary" onClick={() => void pip.open()} title="置顶的小窗口：看会议时也能看到建议">
                   画中画提词器
@@ -509,11 +561,30 @@ export function App() {
                   下载录音
                 </a>
               )}
+              {state.bot?.recordingUrl && (
+                <a className="button secondary" href={state.bot.recordingUrl} target="_blank" rel="noopener noreferrer" title="机器人录制的音频（链接短时间内有效）">
+                  下载录音
+                </a>
+              )}
             </div>
           </div>
 
+          {shareOpen && (
+            <SharePanel
+              share={state.share}
+              onChange={(enabled, includeSuggestions) => connectionRef.current?.send({ type: 'share', enabled, includeSuggestions })}
+            />
+          )}
+
           <div className="panes">
-            <TranscriptPane segments={state.segments} translations={state.translations} speakerNames={state.speakerNames} onRename={renameSpeaker} />
+            <TranscriptPane
+              segments={state.segments}
+              translations={state.translations}
+              speakerNames={state.speakerNames}
+              meSpeaker={state.meSpeaker}
+              onRename={renameSpeaker}
+              onSetMe={setMeSpeaker}
+            />
             <CopilotPane
               suggestions={state.suggestions}
               enabled={form.copilot}
@@ -546,6 +617,15 @@ export function App() {
           />
         </main>
       )}
+    </div>
+  )
+}
+
+function botBanner(hint: ReturnType<typeof botHint>) {
+  if (!hint) return null
+  return (
+    <div className={`notice ${hint.tone}`} role="status">
+      {hint.text}
     </div>
   )
 }

@@ -3,11 +3,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import type { ClientMessage, ServerMessage, SessionConfig } from '../shared/protocol.ts'
 import { createCopilotServer, resolveStaticPath, type CopilotServer } from './app.ts'
+import type { AttendeeClient, CreateBotRequest } from './bot/attendee.ts'
+import { BotManager } from './bot/manager.ts'
 import { loadConfig } from './config.ts'
 import { DeliveryService } from './delivery.ts'
 import { MockLlm } from './llm/mock.ts'
 import { MemoryDocumentStore } from './documents.ts'
-import { ResumableChannel } from './registry.ts'
+import { ResumableChannel, SessionRegistry } from './registry.ts'
+import type { MeetingSession } from './session.ts'
 import type { SttProvider } from './stt/types.ts'
 
 const config: SessionConfig = {
@@ -27,10 +30,10 @@ afterEach(async () => {
   running = null
 })
 
-async function start(env: Record<string, string> = {}, extra: { delivery?: DeliveryService } = {}) {
+async function start(env: Record<string, string> = {}, extra: { delivery?: DeliveryService; bots?: BotManager | null; stt?: SttProvider } = {}) {
   running = createCopilotServer({
     config: loadConfig({ PORT: '0', ...env }),
-    stt: nullStt,
+    stt: extra.stt ?? nullStt,
     llm: new MockLlm(),
     documents: new MemoryDocumentStore(),
     log: { log: () => {}, warn: () => {}, error: () => {} },
@@ -168,6 +171,146 @@ describe('JSON endpoints', () => {
     const base = url().replace('ws://', 'http://').replace('/ws', '')
     expect((await fetch(`${base}/api/brief`, { method: 'POST', body: '{}' })).status).toBe(403)
     expect((await fetch(`${base}/api/deliver`, { method: 'POST', body: '{}' })).status).toBe(403)
+  })
+})
+
+describe('meeting bot mode', () => {
+  it('streams the bot’s audio socket into the meeting and rejects unknown keys', async () => {
+    const created: CreateBotRequest[] = []
+    const attendee = {
+      createBot: async (request: CreateBotRequest) => (created.push(request), { id: 'bot_1', state: 'joining' }),
+      getBot: async (id: string) => ({ id, state: 'joined_recording' }),
+      leave: async () => {},
+      recordingUrl: async () => null,
+    }
+    let port = 0
+    const bots = new BotManager({
+      client: attendee as unknown as AttendeeClient,
+      audioUrl: (key) => `ws://127.0.0.1:${port}/ws/bot?key=${key}`,
+      pollMs: { joining: 5, joined: 5 },
+    })
+    const written: number[] = []
+    const stt: SttProvider = { name: 'fake', open: () => ({ write: (pcm) => void written.push(pcm.byteLength), close: async () => {} }) }
+    const { url } = await start({ ACCESS_TOKEN: 'secret' }, { bots, stt })
+    port = Number(new URL(url()).port)
+
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json()
+    expect(health).toMatchObject({ bot: { enabled: true } })
+
+    const client = connect(url('?token=secret'))
+    await client.opened
+    client.send({ type: 'start', config: { ...config, meetingUrl: 'https://meet.google.com/abc-defg-hij', platform: 'google-meet', bot: { name: 'Copilot' } } })
+    await client.next((m) => m.type === 'bot' && m.state === 'joined_recording')
+
+    // Unknown keys are refused; the bot's own key works without the access token.
+    await expect(connect(`ws://127.0.0.1:${port}/ws/bot?key=guess`).opened).rejects.toThrow()
+    const audioSocket = new WebSocket(created[0].websocket_settings.audio.url)
+    await new Promise((resolve, reject) => (audioSocket.once('open', resolve), audioSocket.once('error', reject)))
+    const chunk = Buffer.from(new Int16Array(1600).fill(9_000).buffer).toString('base64')
+    for (let i = 0; i < 5; i++) {
+      audioSocket.send(JSON.stringify({ bot_id: 'bot_1', trigger: 'realtime_audio.mixed', data: { chunk, sample_rate: 16_000, timestamp_ms: 1_000 + i * 100 } }))
+    }
+    await new Promise((r) => setTimeout(r, 100))
+    expect(written.reduce((a, b) => a + b, 0)).toBe(5 * 3200)
+    audioSocket.close()
+    await client.close()
+  })
+
+  it('reports why bot mode is off', async () => {
+    const { url } = await start()
+    const health = await (await fetch(url().replace('ws://', 'http://').replace('/ws', '/health'))).json()
+    expect(health).toMatchObject({ bot: { enabled: false, reason: expect.stringContaining('ATTENDEE_API_KEY') } })
+  })
+})
+
+describe('bot config', () => {
+  it('needs an API key and a public https URL', () => {
+    expect(loadConfig({}).bot).toBeNull()
+    expect(loadConfig({ ATTENDEE_API_KEY: 'k' }).botUnavailableReason).toContain('PUBLIC_URL')
+    expect(loadConfig({ ATTENDEE_API_KEY: 'k', PUBLIC_URL: 'http://copilot.example.com' }).botUnavailableReason).toContain('https')
+    expect(loadConfig({ ATTENDEE_API_KEY: 'k', PUBLIC_URL: 'https://copilot.example.com/app/' }).bot).toEqual({
+      apiKey: 'k',
+      baseUrl: 'https://app.attendee.dev',
+      audioBaseUrl: 'wss://copilot.example.com/app',
+    })
+  })
+})
+
+describe('live link sharing', () => {
+  it('lets viewers follow a meeting read-only until the owner stops sharing', async () => {
+    const { url } = await start({ ACCESS_TOKEN: 'secret' })
+    const watch = (token: string) => url().replace('/ws', `/ws/watch?share=${token}`)
+    const owner = connect(url('?token=secret'))
+    await owner.opened
+    owner.send({ type: 'start', config })
+    await owner.next((m) => m.type === 'ready')
+    owner.send({ type: 'speakers', names: { S1: 'Alice' } })
+    owner.send({ type: 'demo' })
+    await owner.next((m) => m.type === 'transcript' && m.segment.isFinal)
+
+    owner.send({ type: 'share', enabled: true })
+    const shared = await owner.next((m) => m.type === 'share' && Boolean(m.token))
+    const token = shared.type === 'share' ? shared.token! : ''
+    expect(token.length).toBeGreaterThanOrEqual(24)
+
+    // A wrong token is refused; the right one needs no access token.
+    await expect(connect(watch('guess')).opened).rejects.toThrow()
+    const viewer = connect(watch(token))
+    await viewer.opened
+    const snapshot = await viewer.next((m) => m.type === 'snapshot')
+    expect(snapshot).toMatchObject({ type: 'snapshot', speakerNames: { S1: 'Alice' } })
+    expect('suggestions' in snapshot).toBe(false)
+    expect(snapshot.type === 'snapshot' && snapshot.segments.length).toBeGreaterThan(0)
+    await owner.next((m) => m.type === 'share' && m.viewers === 1)
+
+    // Live lines keep flowing; whatever the viewer sends is ignored.
+    const seen = snapshot.type === 'snapshot' ? snapshot.segments.length : 0
+    viewer.send({ type: 'leave' })
+    await viewer.next((m) => m.type === 'transcript' && m.segment.isFinal)
+    expect(viewer.messages.filter((m) => m.type === 'transcript' && m.segment.isFinal).length + seen).toBeGreaterThan(seen)
+
+    owner.send({ type: 'share', enabled: true, includeSuggestions: true })
+    const resync = await viewer.next((m) => m.type === 'snapshot' && Array.isArray(m.suggestions))
+    expect(resync.type === 'snapshot' && resync.suggestions).toEqual(expect.any(Array))
+
+    owner.send({ type: 'share', enabled: false })
+    expect(await viewer.next((m) => m.type === 'share.ended')).toEqual({ type: 'share.ended', reason: 'stopped' })
+    await viewer.close()
+    await expect(connect(watch(token)).opened).rejects.toThrow()
+    owner.send({ type: 'leave' })
+    await owner.close()
+  })
+
+  it('tells viewers when the meeting ends', async () => {
+    const { url } = await start()
+    const owner = connect(url())
+    await owner.opened
+    owner.send({ type: 'start', config })
+    await owner.next((m) => m.type === 'ready')
+    owner.send({ type: 'share', enabled: true })
+    const shared = await owner.next((m) => m.type === 'share' && Boolean(m.token))
+    const viewer = connect(url().replace('/ws', `/ws/watch?share=${shared.type === 'share' ? shared.token : ''}`))
+    await viewer.opened
+    await viewer.next((m) => m.type === 'snapshot')
+    owner.send({ type: 'leave' })
+    expect(await viewer.next((m) => m.type === 'share.ended')).toEqual({ type: 'share.ended', reason: 'ended' })
+    await owner.close()
+  })
+})
+
+describe('SessionRegistry', () => {
+  it('keeps bot meetings longer than the default grace period', async () => {
+    const registry = new SessionRegistry(10)
+    const closed: string[] = []
+    const fake = (id: string, detachedGraceMs?: number) => ({ id, detachedGraceMs, close: async () => void closed.push(id) }) as unknown as MeetingSession
+    registry.add(fake('plain'), new ResumableChannel(() => {}))
+    registry.add(fake('bot', 80), new ResumableChannel(() => {}))
+    registry.detach('plain')
+    registry.detach('bot')
+    await new Promise((r) => setTimeout(r, 40))
+    expect(closed).toEqual(['plain'])
+    await new Promise((r) => setTimeout(r, 80))
+    expect(closed).toEqual(['plain', 'bot'])
   })
 })
 

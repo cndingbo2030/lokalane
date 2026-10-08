@@ -1,6 +1,6 @@
 import type { OverlayState } from '../../shared/desktop.ts'
 import type { SuggestionKind } from '../../shared/protocol.ts'
-import { speakerDisplay, type AppState } from '../state/reducer.ts'
+import { isMine, speakerDisplay, type AppState } from '../state/reducer.ts'
 
 const KIND_LABEL: Record<SuggestionKind, string> = {
   question: '对方提问',
@@ -12,12 +12,12 @@ const KIND_LABEL: Record<SuggestionKind, string> = {
 /** The few things worth a glance during a call: what they just said, and what to say back. */
 export function deriveOverlayState(state: AppState): OverlayState {
   const phase = state.phase === 'setup' ? 'idle' : state.phase
-  const lastRemote = [...state.segments].reverse().find((s) => s.source === 'remote' && s.isFinal)
+  const lastRemote = [...state.segments].reverse().find((s) => s.isFinal && !isMine(s, state.meSpeaker))
   const latest = state.suggestions[0]
   return {
     phase,
     lastRemote: lastRemote
-      ? { speaker: speakerDisplay(lastRemote, state.speakerNames), text: lastRemote.text, translation: state.translations[lastRemote.id] }
+      ? { speaker: speakerDisplay(lastRemote, state.speakerNames, state.meSpeaker), text: lastRemote.text, translation: state.translations[lastRemote.id] }
       : undefined,
     suggestion: latest
       ? {

@@ -109,7 +109,7 @@ export function MeetingViewer({ record, onClose, onDelete, onUpdate, integration
         </div>
       </div>
       <div className="panes">
-        <TranscriptPane segments={record.segments} translations={record.translations} speakerNames={record.speakerNames} />
+        <TranscriptPane segments={record.segments} translations={record.translations} speakerNames={record.speakerNames} meSpeaker={record.meSpeaker} />
         <section className="pane" aria-label="会议纪要与建议">
           <header className="pane-header">
             <h3>{record.summary ? '会议纪要' : 'AI 建议记录'}</h3>

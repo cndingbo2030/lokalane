@@ -4,6 +4,7 @@ import { encodeAudioFrame } from '../shared/protocol.ts'
 import { DEMO_SCRIPT, playDemo } from './demo.ts'
 import { MockLlm } from './llm/mock.ts'
 import { MockSttProvider } from './stt/mock.ts'
+import type { BotHandle, BotLauncher, BotLaunchOptions } from './bot/types.ts'
 import type { LlmTextRequest } from './llm/types.ts'
 import { MeetingSession } from './session.ts'
 import type { SttProvider, SttResult, SttStreamOptions } from './stt/types.ts'
@@ -221,6 +222,26 @@ describe('MeetingSession phase 1', () => {
     expect(llm.requests[0].prompt).toContain('对方(S1:王总): 价格还能再优惠吗？')
   })
 
+  it('treats the speaker the user marked as themself like the microphone', async () => {
+    const { session, messages, llm } = setup()
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false } })
+    session.handleMessage({ type: 'speakers', names: { S1: '王总' }, me: 'S2' })
+    session.onSttResult('remote', result('我们的预算是多少？', true, 'S2'))
+    await session.idle()
+    expect(messages.some((m) => m.type === 'suggestion.start')).toBe(false)
+
+    session.onSttResult('remote', result('数据存在哪里？', true, 'S1'))
+    await session.idle()
+    expect(messages.filter((m) => m.type === 'suggestion.start')).toHaveLength(1)
+    expect(llm.requests[0].prompt).toContain('我(ME): 我们的预算是多少？')
+    expect(llm.requests[0].prompt).toContain('对方(S1:王总): 数据存在哪里？')
+
+    session.handleMessage({ type: 'speakers', names: {}, me: '../etc' })
+    session.handleMessage({ type: 'ask' })
+    await session.idle()
+    expect(llm.requests.at(-1)!.prompt).toContain('对方(S2): 我们的预算是多少？')
+  })
+
   it('sends documents to the copilot and summary but not the translator', async () => {
     const { session, llm } = setup()
     session.handleMessage({ type: 'start', config: { ...baseConfig, documents: docs } })
@@ -318,5 +339,77 @@ describe('demo script', () => {
     expect(finals).toHaveLength(DEMO_SCRIPT.length)
     expect(messages.filter((m) => m.type === 'translation').length).toBeGreaterThanOrEqual(3)
     expect(messages.filter((m) => m.type === 'suggestion.start').length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('MeetingSession bot mode', () => {
+  class FakeBots implements BotLauncher {
+    readonly launched: BotLaunchOptions[] = []
+    readonly calls: string[] = []
+    launch(options: BotLaunchOptions): BotHandle {
+      this.launched.push(options)
+      return { leave: async () => void this.calls.push('leave'), dispose: () => void this.calls.push('dispose') }
+    }
+  }
+
+  function botSession(bots?: BotLauncher) {
+    const messages: ServerMessage[] = []
+    const stt = new FakeStt()
+    let clock = 10_000
+    const session = new MeetingSession({
+      send: (m) => messages.push(m),
+      stt,
+      llm: new MockLlm(),
+      models: { copilot: 'c', translate: 't', summary: 's' },
+      metricsIntervalMs: 0,
+      now: () => clock,
+      bots,
+    })
+    return { session, messages, stt, tick: (ms: number) => (clock += ms) }
+  }
+
+  const botConfig: SessionConfig = { ...baseConfig, meetingUrl: 'https://zoom.us/j/1234567890?pwd=abc', platform: 'zoom', bot: { name: ' 小助手<b> ' } }
+
+  it('sends a bot and feeds its audio into one diarized stream', async () => {
+    const bots = new FakeBots()
+    const { session, stt, tick } = botSession(bots)
+    session.handleMessage({ type: 'start', config: botConfig })
+    const launched = bots.launched[0]
+    expect(launched).toMatchObject({ sessionId: session.id, botName: '小助手b' })
+    expect(launched.meetingUrl).toBe('https://zoom.us/j/1234567890?pwd=abc')
+    expect(launched.chatMessage).toContain('小助手b')
+    tick(2_500)
+    expect(launched.meetingNowMs()).toBe(2_500)
+
+    launched.onAudio(new Int16Array(1600), 2_400)
+    // The device's own audio is ignored while a bot is the source.
+    session.handleAudio(new Uint8Array(encodeAudioFrame('me', new Int16Array(1600), 0)))
+    expect(stt.opened.map((o) => [o.source, o.diarize])).toEqual([['remote', true]])
+    expect(stt.written).toEqual({ remote: 3200 })
+
+    launched.onStatus({ state: 'joined_recording' })
+    session.handleMessage({ type: 'stop' })
+    await session.close()
+    expect(bots.calls).toEqual(['leave', 'dispose'])
+  })
+
+  it('relays bot status to the client', () => {
+    const bots = new FakeBots()
+    const { session, messages } = botSession(bots)
+    session.handleMessage({ type: 'start', config: botConfig })
+    bots.launched[0].onStatus({ state: 'waiting_room', detail: 'x' })
+    expect(messages.at(-1)).toEqual({ type: 'bot', state: 'waiting_room', detail: 'x' })
+  })
+
+  it('explains when a bot cannot be sent', () => {
+    const none = botSession(undefined)
+    none.session.handleMessage({ type: 'start', config: botConfig })
+    expect(none.messages.find((m) => m.type === 'bot')).toMatchObject({ state: 'fatal_error', detail: expect.stringContaining('ATTENDEE_API_KEY') })
+
+    const bots = new FakeBots()
+    const tencent = botSession(bots)
+    tencent.session.handleMessage({ type: 'start', config: { ...botConfig, meetingUrl: 'https://meeting.tencent.com/dm/abcdef', platform: 'tencent' } })
+    expect(bots.launched).toHaveLength(0)
+    expect(tencent.messages.find((m) => m.type === 'bot')).toMatchObject({ state: 'fatal_error', detail: expect.stringContaining('Zoom') })
   })
 })

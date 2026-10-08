@@ -29,4 +29,17 @@ describe('deriveOverlayState', () => {
       suggestion: { id: 's2', kind: '对方顾虑', quote: 'too expensive', text: '**建议回应**：…', done: false, replyLanguage: 'en' },
     })
   })
+
+  it('skips lines from the speaker marked as the user', () => {
+    const state: AppState = {
+      ...initialState,
+      phase: 'live',
+      meSpeaker: 'S2',
+      segments: [
+        { id: 'a', source: 'remote', speaker: 'S1', text: 'Price?', isFinal: true, startMs: 0, endMs: 1 },
+        { id: 'b', source: 'remote', speaker: 'S2', text: 'Let me check.', isFinal: true, startMs: 1, endMs: 2 },
+      ],
+    }
+    expect(deriveOverlayState(state).lastRemote?.text).toBe('Price?')
+  })
 })

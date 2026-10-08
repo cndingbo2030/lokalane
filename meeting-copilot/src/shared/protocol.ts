@@ -66,6 +66,42 @@ export interface SessionConfig {
   meeting?: MeetingInfo
   /** The user's IANA time zone, to resolve relative due dates ("next Friday"). */
   timeZone?: string
+  /** Send a meeting bot to join `meetingUrl` and stream the meeting audio, instead of capturing it on this device. */
+  bot?: { name?: string }
+}
+
+/** Platforms the meeting bot can join. */
+export const BOT_PLATFORMS: MeetingPlatform[] = ['zoom', 'google-meet', 'teams']
+
+/**
+ * Meeting-bot lifecycle as reported by the bot service (Attendee), plus
+ * "requested" before it answers. Unknown future states are passed through.
+ */
+export type BotState =
+  | 'requested'
+  | 'ready'
+  | 'scheduled'
+  | 'staged'
+  | 'joining'
+  | 'waiting_room'
+  | 'joined_not_recording'
+  | 'joined_recording'
+  | 'joined_recording_paused'
+  | 'joined_recording_permission_denied'
+  | 'joining_breakout_room'
+  | 'leaving_breakout_room'
+  | 'leaving'
+  | 'post_processing'
+  | 'ended'
+  | 'fatal_error'
+  | 'data_deleted'
+
+export interface BotStatus {
+  state: BotState | (string & {})
+  /** Why it failed or left, e.g. "meeting_not_started" (from the bot service's events). */
+  detail?: string
+  /** Short-lived download link for the bot's audio recording, once it is processed. */
+  recordingUrl?: string
 }
 
 export interface MeetingInfo {
@@ -106,10 +142,12 @@ export type ClientMessage =
   /** The user ended the meeting: close the server session now instead of keeping it resumable. */
   | { type: 'leave' }
   | { type: 'ask'; question?: string }
-  /** Display names for diarized speakers, e.g. { S1: '王总' }. */
-  | { type: 'speakers'; names: Record<string, string> }
+  /** Display names for diarized speakers, e.g. { S1: '王总' }; `me`: the speaker who is the user. */
+  | { type: 'speakers'; names: Record<string, string>; me?: string }
   | { type: 'feedback'; suggestionId: string; rating: FeedbackRating | null }
   | { type: 'summary' }
+  /** Turn the read-only live link on or off (and whether AI suggestions are included). */
+  | { type: 'share'; enabled: boolean; includeSuggestions?: boolean }
   | { type: 'demo' }
   | { type: 'stop' }
   | { type: 'ping' }
@@ -126,9 +164,34 @@ export type ServerMessage =
   | { type: 'summary.done'; error?: string }
   | { type: 'outcomes.start' }
   | { type: 'outcomes'; outcomes?: MeetingOutcomes; error?: string }
+  | ({ type: 'bot' } & BotStatus)
+  /** Speaker names and the user's own speaker, as the server knows them (restored on resume, shown to viewers). */
+  | { type: 'speakers'; names: Record<string, string>; me?: string }
+  /** Owner: the live link's state. `token` is absent when sharing is off. */
+  | { type: 'share'; token?: string; includeSuggestions: boolean; viewers: number }
+  /** Viewer: everything so far, sent when a viewer connects. */
+  | ShareSnapshot
+  /** Viewer: the owner stopped sharing, or the meeting ended. */
+  | { type: 'share.ended'; reason: 'stopped' | 'ended' }
   | { type: 'metrics'; metrics: MetricsSnapshot }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'pong' }
+
+export interface ShareSnapshot {
+  type: 'snapshot'
+  title?: string
+  /** Epoch ms when the meeting started. */
+  startedAt: number
+  segments: TranscriptSegment[]
+  translations: Record<string, string>
+  speakerNames: Record<string, string>
+  me?: string
+  /** Only when the owner shares AI suggestions. Newest first. */
+  suggestions?: Array<{ id: string; trigger: SuggestionTrigger; text: string }>
+  summary?: string
+  /** Decisions and action items; never the follow-up email draft. */
+  outcomes?: MeetingOutcomes
+}
 
 export interface LatencyStats {
   count: number

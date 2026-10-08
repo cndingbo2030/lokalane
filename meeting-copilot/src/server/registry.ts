@@ -65,7 +65,7 @@ export class SessionRegistry {
     if (!entry) return
     entry.channel.detach()
     clearTimeout(entry.expiry)
-    entry.expiry = setTimeout(() => void this.end(sessionId), this.graceMs)
+    entry.expiry = setTimeout(() => void this.end(sessionId), entry.session.detachedGraceMs ?? this.graceMs)
   }
 
   /** Re-attach a detached session to a new socket; null if unknown, expired or still attached. */

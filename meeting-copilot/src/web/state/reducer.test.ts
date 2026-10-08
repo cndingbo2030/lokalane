@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ServerMessage, TranscriptSegment } from '../../shared/protocol.ts'
-import { initialState, reducer, transcriptToMarkdown, type AppState } from './reducer.ts'
+import { initialState, reducer, speakerDisplay, transcriptToMarkdown, type AppState } from './reducer.ts'
 
 const segment = (id: string, text: string, isFinal: boolean): TranscriptSegment => ({
   id,
@@ -91,6 +91,57 @@ describe('reducer', () => {
     expect(state.outcomes).toEqual({ status: 'idle' })
     state = server(state, { type: 'outcomes', error: 'model refused' })
     expect(state.outcomes).toEqual({ status: 'error', error: 'model refused' })
+  })
+
+  it('tracks the meeting bot and keeps its recording link', () => {
+    let state = server(initialState, { type: 'bot', state: 'joining' })
+    expect(state.bot).toEqual({ state: 'joining', detail: undefined, recordingUrl: undefined })
+    state = server(state, { type: 'bot', state: 'ended', recordingUrl: 'https://s3.example.com/a.mp3' })
+    state = server(state, { type: 'bot', state: 'ended', detail: 'x' })
+    expect(state.bot).toEqual({ state: 'ended', detail: 'x', recordingUrl: 'https://s3.example.com/a.mp3' })
+  })
+
+  it('shows the speaker marked as the user as 我', () => {
+    let state = server(initialState, { type: 'transcript', segment: segment('a', 'Hi', true) })
+    state = reducer(state, { type: 'setMeSpeaker', speaker: 'S1' })
+    expect(speakerDisplay(state.segments[0], state.speakerNames, state.meSpeaker)).toBe('我')
+    expect(transcriptToMarkdown(state)).toContain('**我**')
+    state = reducer(state, { type: 'setMeSpeaker', speaker: null })
+    expect(state.meSpeaker).toBeUndefined()
+  })
+
+  it('replaces everything with a viewer snapshot and follows the share state', () => {
+    let state = server(initialState, { type: 'transcript', segment: segment('old', 'stale', true) })
+    state = server(state, {
+      type: 'snapshot',
+      title: 'Pilot review',
+      startedAt: 1,
+      segments: [segment('a', 'Hello', true)],
+      translations: { a: '你好' },
+      speakerNames: { S1: 'Alice' },
+      me: 'S2',
+      suggestions: [{ id: 's1', trigger: { kind: 'question', text: 'q' }, text: 'answer' }],
+      summary: '## TL;DR',
+    })
+    expect(state).toMatchObject({
+      phase: 'live',
+      translations: { a: '你好' },
+      speakerNames: { S1: 'Alice' },
+      meSpeaker: 'S2',
+      summary: { status: 'done', text: '## TL;DR' },
+      outcomes: { status: 'idle' },
+      watch: { title: 'Pilot review', startedAt: 1 },
+    })
+    expect(state.segments.map((s) => s.id)).toEqual(['a'])
+    expect(state.suggestions[0]).toMatchObject({ id: 's1', done: true })
+
+    state = server(state, { type: 'speakers', names: { S1: 'Bob' } })
+    expect([state.speakerNames, state.meSpeaker]).toEqual([{ S1: 'Bob' }, undefined])
+    state = server(state, { type: 'share.ended', reason: 'stopped' })
+    expect(state).toMatchObject({ phase: 'ended', watch: { title: 'Pilot review', ended: 'stopped' } })
+
+    const owner = server(initialState, { type: 'share', token: 't', includeSuggestions: false, viewers: 2 })
+    expect(owner.share).toEqual({ token: 't', includeSuggestions: false, viewers: 2 })
   })
 
   it('exports finals with translations as markdown', () => {

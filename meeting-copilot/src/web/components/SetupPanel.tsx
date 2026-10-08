@@ -1,13 +1,16 @@
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import { LANGUAGE_NAMES } from '../../shared/language.ts'
 import type { ParsedMeetingLink } from '../../shared/meetingLink.ts'
-import type { DocumentRef, LanguageCode } from '../../shared/protocol.ts'
+import { BOT_PLATFORMS, type DocumentRef, type LanguageCode } from '../../shared/protocol.ts'
 import type { CaptureMode } from '../audio/engine.ts'
 import { deleteDocument, uploadDocument } from '../net/api.ts'
 
 export interface SetupForm {
   link: string
-  mode: CaptureMode
+  /** `bot`: a meeting bot joins the call and streams its audio (no capture on this device). */
+  mode: CaptureMode | 'bot'
+  /** The bot's display name in the meeting. */
+  botName: string
   spokenLanguages: LanguageCode[]
   targetLanguage: Exclude<LanguageCode, 'auto'>
   translate: boolean
@@ -28,6 +31,7 @@ export interface SetupForm {
 export const defaultForm: SetupForm = {
   link: '',
   mode: 'tab',
+  botName: 'Meeting Copilot',
   spokenLanguages: ['zh', 'en'],
   targetLanguage: 'zh',
   translate: true,
@@ -55,6 +59,13 @@ const PLATFORM_TIPS: Record<string, string> = {
 
 const ACCEPT = '.pdf,.txt,.md,.markdown,.csv,application/pdf,text/plain,text/markdown,text/csv'
 
+const START_LABELS: Record<SetupForm['mode'], string> = {
+  tab: '开始：选择会议标签页',
+  system: '开始：采集系统声音',
+  'mic-only': '开始：使用麦克风',
+  bot: '开始：派机器人入会',
+}
+
 interface Props {
   form: SetupForm
   onChange: Dispatch<SetStateAction<SetupForm>>
@@ -64,6 +75,8 @@ interface Props {
   onDemo: () => void
   /** Running inside the desktop app: offers system-audio capture. */
   desktop?: boolean
+  /** The server can send meeting bots. */
+  botAvailable?: boolean
   /** The calendar meeting this setup was prepared from. */
   linkedEvent?: { title: string; when: string; attendees: number } | null
   onUnlinkEvent?: () => void
@@ -71,7 +84,20 @@ interface Props {
   briefStatus?: { status: 'idle' | 'loading' | 'done' | 'error'; message?: string }
 }
 
-export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desktop = false, linkedEvent, onUnlinkEvent, onGenerateBrief, briefStatus }: Props) {
+export function SetupPanel({
+  form,
+  onChange,
+  parsed,
+  busy,
+  onStart,
+  onDemo,
+  desktop = false,
+  botAvailable = false,
+  linkedEvent,
+  onUnlinkEvent,
+  onGenerateBrief,
+  briefStatus,
+}: Props) {
   const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => onChange((f) => ({ ...f, [key]: value }))
   const [uploading, setUploading] = useState<string[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -99,6 +125,7 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
       // Already removed from the meeting; a stale server-side copy is harmless.
     }
   }
+  const botLinkOk = Boolean(parsed && BOT_PLATFORMS.includes(parsed.platform))
   const toggleLanguage = (lang: Exclude<LanguageCode, 'auto'>) => {
     const has = form.spokenLanguages.includes(lang)
     const next = has ? form.spokenLanguages.filter((l) => l !== lang) : [...form.spokenLanguages, lang]
@@ -154,7 +181,25 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
           <button type="button" role="radio" aria-checked={form.mode === 'mic-only'} className={form.mode === 'mic-only' ? 'on' : ''} onClick={() => set('mode', 'mic-only')}>
             线下会议（仅麦克风）
           </button>
+          {botAvailable && (
+            <button type="button" role="radio" aria-checked={form.mode === 'bot'} className={form.mode === 'bot' ? 'on' : ''} onClick={() => set('mode', 'bot')}>
+              会议机器人（自动入会）
+            </button>
+          )}
         </div>
+        {form.mode === 'bot' && (
+          <div className="bot-settings">
+            <label>
+              <span className="field-label">机器人在会议中的名称</span>
+              <input value={form.botName} maxLength={60} placeholder="Meeting Copilot" onChange={(e) => set('botName', e.target.value)} />
+            </label>
+            <p className="muted small">
+              机器人以参会者身份加入 Zoom / Google Meet / Teams，入会后在聊天中发送录音告知；本机无需共享标签页或系统声音，手机上也能查看实时字幕和建议。
+              机器人听到的是整场会议（包括你），可在字幕中点「这是我」标记自己的声音。
+            </p>
+            {parsed && !botLinkOk && <p className="error-text">会议机器人暂不支持{parsed.label}，请改用「线上会议」模式。</p>}
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -189,7 +234,7 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
           <Toggle label="实时翻译" checked={form.translate} onChange={(v) => set('translate', v)} />
           <Toggle label="AI 实时建议" checked={form.copilot} onChange={(v) => set('copilot', v)} />
           <Toggle label="对方提问/异议时自动给建议" checked={form.autoTrigger} disabled={!form.copilot} onChange={(v) => set('autoTrigger', v)} />
-          <Toggle label="本地录音（会后下载）" checked={form.record} onChange={(v) => set('record', v)} />
+          <Toggle label={form.mode === 'bot' ? '录音（机器人录制，会后下载）' : '本地录音（会后下载）'} checked={form.mode === 'bot' || form.record} disabled={form.mode === 'bot'} onChange={(v) => set('record', v)} />
           <Toggle label="静音时不发送音频（节省识别费用）" checked={form.vad} onChange={(v) => set('vad', v)} />
           <Toggle label="会后保存到本机历史（不上传服务器）" checked={form.saveHistory} onChange={(v) => set('saveHistory', v)} />
         </div>
@@ -282,8 +327,8 @@ export function SetupPanel({ form, onChange, parsed, busy, onStart, onDemo, desk
           <button type="button" className="button secondary" disabled={busy} onClick={onDemo}>
             试用演示会议
           </button>
-          <button type="button" className="button primary" disabled={busy || !form.consent} onClick={onStart}>
-            {form.mode === 'tab' ? '开始：选择会议标签页' : form.mode === 'system' ? '开始：采集系统声音' : '开始：使用麦克风'}
+          <button type="button" className="button primary" disabled={busy || !form.consent || (form.mode === 'bot' && !botLinkOk)} onClick={onStart}>
+            {START_LABELS[form.mode]}
           </button>
         </div>
         {form.mode === 'system' && (

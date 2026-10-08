@@ -114,6 +114,50 @@ describe('CopilotConnection', () => {
     expect(conn.lostFrames).toBe(100)
   })
 
+  it('gives up after a few attempts by default', () => {
+    const { socket, statuses, messages } = setup()
+    socket().open()
+    socket().receive({ type: 'ready', sessionId: 's1', stt: 'x', llm: 'y' })
+    for (let i = 0; i < 9; i++) {
+      socket().drop()
+      vi.advanceTimersByTime(10_000)
+    }
+    expect(statuses.at(-1)).toBe('closed')
+    expect(messages.at(-1)).toBe('error')
+  })
+
+  it('keeps trying for a bot meeting and reconnects as soon as the device is back', () => {
+    const target = new EventTarget()
+    vi.stubGlobal('window', Object.assign(Object.create(globalThis) as object, {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+      setInterval: globalThis.setInterval,
+      clearInterval: globalThis.clearInterval,
+    }))
+    vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }))
+    const statuses: ConnectionStatus[] = []
+    const conn = new CopilotConnection('ws://x/ws', { type: 'start', config }, { onStatus: (s) => statuses.push(s), onMessage: () => {} }, { keepTryingMs: 5 * 60_000 })
+    conn.connect()
+    const socket = () => FakeSocket.instances.at(-1)!
+    socket().open()
+    socket().receive({ type: 'ready', sessionId: 's1', stt: 'x', llm: 'y' })
+    for (let i = 0; i < 20; i++) {
+      socket().drop()
+      vi.advanceTimersByTime(10_000) // 200 s down: well past the default attempts
+    }
+    expect(statuses.at(-1)).toBe('reconnecting')
+
+    socket().drop()
+    const before = FakeSocket.instances.length
+    target.dispatchEvent(new Event('online'))
+    expect(FakeSocket.instances.length).toBe(before + 1) // no waiting for the backoff
+    socket().open()
+    expect(socket().json()[0]).toMatchObject({ resumeSessionId: 's1' })
+    conn.close()
+  })
+
   it('tells the server to end the meeting on close and stops reconnecting', () => {
     const { conn, socket, statuses } = setup()
     socket().open()

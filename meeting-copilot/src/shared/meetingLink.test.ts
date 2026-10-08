@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractMeetingLink, parseMeetingLink } from './meetingLink.ts'
+import { botJoinUrl, extractMeetingLink, parseMeetingLink } from './meetingLink.ts'
 
 describe('extractMeetingLink', () => {
   it('skips help and download links and prefers links with a meeting id', () => {
@@ -73,5 +73,17 @@ describe('parseMeetingLink', () => {
     expect(parseMeetingLink('https://example.com/room/1')?.platform).toBe('unknown')
     expect(parseMeetingLink('not a link')).toBeNull()
     expect(parseMeetingLink('javascript:alert(1)')).toBeNull()
+  })
+})
+
+describe('botJoinUrl', () => {
+  it('gives bots the standard Zoom join link instead of the browser client', () => {
+    const zoom = parseMeetingLink('https://us02web.zoom.us/j/81234567890?pwd=abcDEF123')!
+    expect(zoom.url).toContain('/wc/join/')
+    expect(botJoinUrl(zoom)).toBe('https://us02web.zoom.us/j/81234567890?pwd=abcDEF123')
+    const meet = parseMeetingLink('https://meet.google.com/abc-defg-hij')!
+    expect(botJoinUrl(meet)).toBe(meet.url)
+    const vanity = parseMeetingLink('https://zoom.us/my/alice.tan')!
+    expect(botJoinUrl(vanity)).toBe(vanity.url)
   })
 })

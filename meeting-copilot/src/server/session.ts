@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { MeetingOutcomes } from '../shared/outcomes.ts'
 import type {
   AudioSource,
   ClientMessage,
@@ -7,21 +8,25 @@ import type {
   MetricsSnapshot,
   ServerMessage,
   SessionConfig,
+  ShareSnapshot,
+  SuggestionTrigger,
   TranscriptSegment,
 } from '../shared/protocol.ts'
-import { AUDIO_SAMPLE_RATE, decodeAudioFrame } from '../shared/protocol.ts'
+import { botJoinUrl, parseMeetingLink } from '../shared/meetingLink.ts'
+import { AUDIO_SAMPLE_RATE, BOT_PLATFORMS, decodeAudioFrame } from '../shared/protocol.ts'
 import { AudioClock } from '../shared/vad.ts'
 import { Copilot } from './ai/copilot.ts'
 import { briefBlock } from './ai/prompts.ts'
 import { describeMeetingDate } from './ai/outcomes.ts'
 import { extractOutcomes, streamSummary } from './ai/summarizer.ts'
 import { Translator } from './ai/translator.ts'
+import { botChatMessage, sanitizeBotName, type BotHandle, type BotLauncher } from './bot/types.ts'
 import { playDemo } from './demo.ts'
 import { sanitizeDocuments } from './documents.ts'
 import type { LlmClient } from './llm/types.ts'
 import { SessionMetrics } from './metrics.ts'
 import type { SttProvider, SttResult, SttStream } from './stt/types.ts'
-import { sanitizeSpeakerNames, TranscriptStore } from './transcript.ts'
+import { isMe, sanitizeSpeakerId, sanitizeSpeakerNames, TranscriptStore, type Speakers } from './transcript.ts'
 import { TriggerDetector } from './triggers.ts'
 
 export interface SessionDeps {
@@ -35,6 +40,8 @@ export interface SessionDeps {
   /** How often changed metrics are pushed to the client; 0 disables the timer. */
   metricsIntervalMs?: number
   now?: () => number
+  /** Meeting bots (bot mode); undefined when the server has no bot service configured. */
+  bots?: BotLauncher
 }
 
 /**
@@ -46,8 +53,9 @@ export interface SessionDeps {
  *                                 |-> TriggerDetector -> Copilot (remote questions/objections)
  *                                 '-> TranscriptStore -> Summary (on demand)
  *
- * Audio may arrive with gaps (client-side VAD), so each source has an AudioClock
- * that maps STT timestamps back to meeting time.
+ * Audio comes from the client (tab / system audio + microphone) or, in bot mode,
+ * from a meeting bot that joined the call. It may arrive with gaps (VAD), so each
+ * source has an AudioClock that maps STT timestamps back to meeting time.
  */
 export class MeetingSession {
   readonly id = randomUUID()
@@ -56,7 +64,7 @@ export class MeetingSession {
   private config: SessionConfig | null = null
   private documents: DocumentRef[] = []
   private meetingInfo: MeetingInfo | undefined
-  private speakerNames: Record<string, string> = {}
+  private speakers: Speakers = { names: {} }
   private readonly streams = new Map<AudioSource, SttStream>()
   private readonly clocks: Record<AudioSource, AudioClock> = { me: new AudioClock(), remote: new AudioClock() }
   private readonly counters: Record<AudioSource, number> = { me: 0, remote: 0 }
@@ -69,6 +77,12 @@ export class MeetingSession {
   private copilot: Copilot | null = null
   private demoController: AbortController | null = null
   private summaryController: AbortController | null = null
+  private bot: BotHandle | null = null
+  // Kept for live-link viewers who join mid-meeting.
+  private readonly translations = new Map<string, string>()
+  private readonly suggestionLog: Array<{ id: string; trigger: SuggestionTrigger; text: string; done: boolean; error?: string }> = []
+  private summaryText = ''
+  private outcomes: MeetingOutcomes | undefined
   private metricsTimer: ReturnType<typeof setInterval> | undefined
   private sentRevision = -1
   private closed = false
@@ -88,7 +102,8 @@ export class MeetingSession {
         this.ask(message.question)
         break
       case 'speakers':
-        this.speakerNames = sanitizeSpeakerNames(message.names)
+        this.speakers = { names: sanitizeSpeakerNames(message.names), me: sanitizeSpeakerId(message.me) }
+        this.deps.send({ type: 'speakers', names: { ...this.speakers.names }, me: this.speakers.me })
         break
       case 'feedback':
         if (typeof message.suggestionId === 'string' && message.suggestionId.startsWith(`${this.shortId}-`) && message.suggestionId.length <= 64) {
@@ -103,6 +118,7 @@ export class MeetingSession {
         this.runDemo()
         break
       case 'stop':
+        void this.bot?.leave()
         void this.stopAudio().then(() => this.pushMetrics())
         break
       case 'ping':
@@ -112,14 +128,18 @@ export class MeetingSession {
   }
 
   handleAudio(frame: Uint8Array): void {
-    if (!this.config || this.closed) return
+    if (!this.config || this.closed || this.bot) return
     const decoded = decodeAudioFrame(frame)
-    if (!decoded) return
-    const durationMs = (decoded.pcm.byteLength / 2 / AUDIO_SAMPLE_RATE) * 1000
-    // Client capture time, not arrival time: exact even for audio buffered during a disconnect.
-    this.clocks[decoded.source].record(decoded.captureMs, durationMs)
-    this.metrics.addAudio(decoded.source, durationMs)
-    this.streamFor(decoded.source).write(decoded.pcm)
+    if (decoded) this.ingest(decoded.source, decoded.pcm, decoded.captureMs)
+  }
+
+  /** `captureMs`: capture time, not arrival time, so audio buffered during a disconnect is placed exactly. */
+  private ingest(source: AudioSource, pcm: Uint8Array, captureMs: number): void {
+    if (!this.config || this.closed) return
+    const durationMs = (pcm.byteLength / 2 / AUDIO_SAMPLE_RATE) * 1000
+    this.clocks[source].record(captureMs, durationMs)
+    this.metrics.addAudio(source, durationMs)
+    this.streamFor(source).write(pcm)
   }
 
   async close(): Promise<void> {
@@ -130,6 +150,7 @@ export class MeetingSession {
     this.summaryController?.abort()
     this.translator?.stop()
     this.copilot?.stop()
+    this.bot?.dispose()
     await this.stopAudio()
     if (this.config) this.deps.onClosed?.(this.id, this.metrics.snapshot())
   }
@@ -142,6 +163,30 @@ export class MeetingSession {
   /** A dropped client re-attached: confirm, with the same session id. */
   announceResumed(): void {
     this.deps.send({ type: 'ready', sessionId: this.id, stt: this.deps.stt.name, llm: this.deps.llm.name, resumed: true })
+  }
+
+  /** Everything a live-link viewer needs to catch up. The follow-up email draft stays private. */
+  snapshot(includeSuggestions: boolean): ShareSnapshot {
+    return {
+      type: 'snapshot',
+      title: this.meetingInfo?.title,
+      startedAt: this.startedAt,
+      segments: [...this.transcript.all()],
+      translations: Object.fromEntries(this.translations),
+      speakerNames: { ...this.speakers.names },
+      me: this.speakers.me,
+      suggestions: includeSuggestions
+        ? this.suggestionLog.filter((s) => s.done && !s.error && s.text).map(({ id, trigger, text }) => ({ id, trigger, text }))
+        : undefined,
+      summary: this.summaryText || undefined,
+      outcomes: this.outcomes ? { ...this.outcomes, followUpEmail: { subject: '', body: '' } } : undefined,
+    }
+  }
+
+  /** How long to keep this meeting for its client after the socket drops (undefined: the default). */
+  get detachedGraceMs(): number | undefined {
+    // A bot keeps listening without the client (e.g. a phone that slept), so wait longer.
+    return this.bot ? 15 * 60_000 : undefined
   }
 
   metricsSnapshot(): MetricsSnapshot {
@@ -160,7 +205,7 @@ export class MeetingSession {
     this.documents = sanitizeDocuments(config.documents)
     this.meetingInfo = sanitizeMeetingInfo(config.meeting)
     const cachedContext = briefBlock(config.brief, this.meetingInfo)
-    const names = () => this.speakerNames
+    const speakers = () => this.speakers
 
     this.translator = config.translate
       ? new Translator({
@@ -169,11 +214,12 @@ export class MeetingSession {
           target: config.targetLanguage,
           transcript: this.transcript,
           cachedContext,
-          speakerNames: names,
+          speakers,
           onTranslation: (segmentId, text) => {
             const finalAt = this.finalizedAt.get(segmentId)
             if (finalAt !== undefined) this.metrics.addTranslationLatency(this.now() - finalAt)
             this.finalizedAt.delete(segmentId)
+            this.translations.set(segmentId, text)
             this.deps.send({ type: 'translation', segmentId, text, targetLanguage: config.targetLanguage })
           },
           onError: (error) => this.reportError('翻译失败', error),
@@ -188,25 +234,54 @@ export class MeetingSession {
           transcript: this.transcript,
           cachedContext,
           documents: this.documents,
-          speakerNames: names,
+          speakers,
           idPrefix: this.shortId,
           events: {
             start: (id, trigger, waitedMs) => {
               this.metrics.suggestionShown(waitedMs)
+              this.suggestionLog.unshift({ id, trigger, text: '', done: false })
+              this.suggestionLog.splice(30)
               this.deps.send({ type: 'suggestion.start', id, trigger })
             },
-            delta: (id, delta) => this.deps.send({ type: 'suggestion.delta', id, delta }),
-            done: (id, error) => this.deps.send({ type: 'suggestion.done', id, error }),
+            delta: (id, delta) => {
+              const entry = this.suggestionLog.find((s) => s.id === id)
+              if (entry) entry.text += delta
+              this.deps.send({ type: 'suggestion.delta', id, delta })
+            },
+            done: (id, error) => {
+              const entry = this.suggestionLog.find((s) => s.id === id)
+              if (entry) Object.assign(entry, { done: true, error })
+              this.deps.send({ type: 'suggestion.done', id, error })
+            },
             skipped: () => this.metrics.suggestionSkipped(),
           },
         })
       : null
 
     this.deps.send({ type: 'ready', sessionId: this.id, stt: this.deps.stt.name, llm: this.deps.llm.name })
+    if (config.bot && !this.bot) this.launchBot(config)
 
     clearInterval(this.metricsTimer)
     const interval = this.deps.metricsIntervalMs ?? 2_000
     if (interval > 0) this.metricsTimer = setInterval(() => this.pushMetrics(), interval)
+  }
+
+  private launchBot(config: SessionConfig): void {
+    const link = parseMeetingLink(config.meetingUrl ?? '')
+    const fail = (detail: string) => this.deps.send({ type: 'bot', state: 'fatal_error', detail })
+    if (!this.deps.bots) return fail('服务器未开启会议机器人（需要配置 ATTENDEE_API_KEY 和 PUBLIC_URL）')
+    if (!link || !BOT_PLATFORMS.includes(link.platform)) return fail('会议机器人支持 Zoom、Google Meet 和 Microsoft Teams 链接')
+    const botName = sanitizeBotName(config.bot?.name)
+    this.bot = this.deps.bots.launch({
+      sessionId: this.id,
+      meetingUrl: botJoinUrl(link),
+      botName,
+      chatMessage: botChatMessage(botName, config.spokenLanguages),
+      meetingNowMs: () => this.now() - this.startedAt,
+      // The bot hears the whole meeting, the user included: one diarized "remote" stream.
+      onAudio: (pcm, captureMs) => this.ingest('remote', new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), captureMs),
+      onStatus: (status) => this.deps.send({ type: 'bot', ...status }),
+    })
   }
 
   private pushMetrics(): void {
@@ -266,7 +341,8 @@ export class MeetingSession {
       this.translator.enqueue(segment)
     }
     if (this.config?.copilot.enabled && this.config.copilot.autoTrigger) {
-      const decision = this.triggers.evaluate(segment)
+      // The user's own voice in a diarized stream (bot / room mic) never triggers suggestions.
+      const decision = this.triggers.evaluate(isMe(segment, this.speakers) ? { ...segment, source: 'me' } : segment)
       if (decision) {
         this.metrics.suggestionTriggered()
         this.copilot?.trigger({ kind: decision.kind, segmentId: segment.id, text: segment.text })
@@ -279,7 +355,7 @@ export class MeetingSession {
       this.deps.send({ type: 'error', message: 'AI 建议未开启', recoverable: true })
       return
     }
-    const last = this.transcript.recent(60_000).filter((s) => s.source === 'remote').at(-1)
+    const last = this.transcript.recent(60_000).filter((s) => !isMe(s, this.speakers)).at(-1)
     this.metrics.suggestionTriggered()
     this.copilot.trigger({ kind: 'manual', segmentId: last?.id, text: question?.trim() || last?.text || '' }, question?.trim() || undefined)
   }
@@ -296,12 +372,20 @@ export class MeetingSession {
       transcript: this.transcript,
       cachedContext: briefBlock(this.config.brief, this.meetingInfo),
       documents: this.documents,
-      speakerNames: this.speakerNames,
+      speakers: this.speakers,
       signal: controller.signal,
     }
+    this.summaryText = ''
+    this.outcomes = undefined
     this.deps.send({ type: 'summary.start' })
     try {
-      await streamSummary({ ...analysis, onDelta: (delta) => this.deps.send({ type: 'summary.delta', delta }) })
+      await streamSummary({
+        ...analysis,
+        onDelta: (delta) => {
+          this.summaryText += delta
+          this.deps.send({ type: 'summary.delta', delta })
+        },
+      })
       if (controller.signal.aborted) return
       this.deps.send({ type: 'summary.done' })
     } catch (error) {
@@ -314,7 +398,10 @@ export class MeetingSession {
     this.deps.send({ type: 'outcomes.start' })
     try {
       const outcomes = await extractOutcomes({ ...analysis, meetingDate: describeMeetingDate(this.startedAt, this.config.timeZone) })
-      if (!controller.signal.aborted) this.deps.send({ type: 'outcomes', outcomes })
+      if (!controller.signal.aborted) {
+        this.outcomes = outcomes
+        this.deps.send({ type: 'outcomes', outcomes })
+      }
     } catch (error) {
       if (!controller.signal.aborted) this.deps.send({ type: 'outcomes', error: errorMessage(error) })
     }

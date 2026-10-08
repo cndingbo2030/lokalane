@@ -5,6 +5,8 @@ import { extname, join, normalize, resolve, sep } from 'node:path'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts'
 import { generateBrief } from './ai/brief.ts'
+import { AttendeeClient } from './bot/attendee.ts'
+import { BotManager } from './bot/manager.ts'
 import { CalendarService } from './calendar/service.ts'
 import type { ServerConfig } from './config.ts'
 import { DeliveryService } from './delivery.ts'
@@ -14,6 +16,7 @@ import { AnthropicLlm } from './llm/anthropic.ts'
 import { MockLlm } from './llm/mock.ts'
 import type { LlmClient } from './llm/types.ts'
 import { ResumableChannel, SessionRegistry } from './registry.ts'
+import { ShareHub } from './share.ts'
 import { MeetingSession } from './session.ts'
 import { createSttProvider } from './stt/index.ts'
 import type { SttProvider } from './stt/types.ts'
@@ -28,6 +31,8 @@ export interface CopilotServerOptions {
   documents?: DocumentStore
   calendar?: CalendarService
   delivery?: DeliveryService
+  /** Meeting bots; defaults to Attendee when configured (tests inject a fake). */
+  bots?: BotManager | null
   log?: Pick<Console, 'log' | 'warn' | 'error'>
   /** How long a disconnected meeting is kept for resumption. */
   resumeGraceMs?: number
@@ -38,6 +43,8 @@ export interface CopilotServer {
   readonly stt: SttProvider
   readonly llm: LlmClient
   readonly sessions: SessionRegistry
+  readonly bots: BotManager | null
+  readonly shares: ShareHub
   /** Resolves with the bound port (pass 0 for an ephemeral port). */
   listen(port: number, host?: string): Promise<number>
   close(): Promise<void>
@@ -64,8 +71,21 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
   const documents: DocumentStore = options.documents ?? (config.anthropicConfigured ? new AnthropicDocumentStore() : new MemoryDocumentStore())
   const staticDir = options.staticDir ? resolve(options.staticDir) : undefined
   const sessions = new SessionRegistry(options.resumeGraceMs)
+  const shares = new ShareHub()
+  /** Each session's resumable channel to its owner (follows the owner across reconnects). */
+  const owners = new Map<string, (message: ServerMessage) => void>()
   const calendar = options.calendar ?? new CalendarService({ allowPrivateNetwork: config.allowPrivateNetwork })
   const delivery = options.delivery ?? new DeliveryService({ allowPrivateNetwork: config.allowPrivateNetwork })
+  const bots =
+    options.bots !== undefined
+      ? options.bots
+      : config.bot
+        ? new BotManager({
+            client: new AttendeeClient({ apiKey: config.bot.apiKey, baseUrl: config.bot.baseUrl }),
+            audioUrl: (key) => `${config.bot!.audioBaseUrl}/ws/bot?key=${key}`,
+            log: (message) => log.warn(message),
+          })
+        : null
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
@@ -77,6 +97,7 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
         documents: documents.name,
         models: config.models,
         auth: Boolean(config.accessToken),
+        bot: bots ? { enabled: true } : { enabled: false, reason: config.botUnavailableReason },
       })
     }
     if (url.pathname === '/api/calendar/events' && req.method === 'POST') {
@@ -101,9 +122,34 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
 
   // 64 KiB per frame is far above a 100 ms PCM frame (3.2 KB) and blocks abuse.
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
+  // The bot service's audio stream: base64 JSON chunks, authenticated by the bot's secret key.
+  const botWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 })
+  // Live-link viewers only listen.
+  const watchWss = new WebSocketServer({ noServer: true, maxPayload: 1024 })
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname === '/ws/bot') {
+      const bot = bots?.botForKey(url.searchParams.get('key'))
+      if (!bot) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      botWss.handleUpgrade(req, socket, head, (ws) => bot.attachSocket(ws))
+      return
+    }
+    if (url.pathname === '/ws/watch') {
+      // The share token is the credential (no access token), but the origin check still applies.
+      const token = url.searchParams.get('share')
+      if (!originAllowed(req) || !shares.has(token)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      watchWss.handleUpgrade(req, socket, head, (ws) => shares.attachViewer(token!, ws))
+      return
+    }
     if (url.pathname !== '/ws' || !isAllowed(req, url)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
       socket.destroy()
@@ -129,17 +175,44 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
         }
       }
       const channel = new ResumableChannel(send)
-      session = new MeetingSession({
-        send: channel.send,
+      const created: MeetingSession = new MeetingSession({
+        send: (m) => {
+          channel.send(m)
+          shares.broadcast(created.id, m)
+        },
         stt,
         llm,
         models: config.models,
+        bots: bots ?? undefined,
         log: (text, extra) => log.warn(`[session] ${text}`, extra instanceof Error ? extra.message : ''),
         // One structured line per meeting: latency, usage, cost and feedback (no transcript content).
-        onClosed: (sessionId, metrics) => log.log(JSON.stringify({ event: 'meeting.closed', sessionId, metrics })),
+        onClosed: (sessionId, metrics) => {
+          shares.disable(sessionId, 'ended')
+          owners.delete(sessionId)
+          log.log(JSON.stringify({ event: 'meeting.closed', sessionId, metrics }))
+        },
       })
-      sessions.add(session, channel)
-      session.handleMessage(message)
+      session = created
+      owners.set(created.id, channel.send)
+      sessions.add(created, channel)
+      created.handleMessage(message)
+    }
+
+    const toggleShare = (message: Extract<ClientMessage, { type: 'share' }>) => {
+      const current = session
+      if (!current) return
+      if (!message.enabled) {
+        shares.disable(current.id)
+        return send({ type: 'share', includeSuggestions: false, viewers: 0 })
+      }
+      const notifyOwner = owners.get(current.id) ?? send
+      notifyOwner(
+        shares.enable(current.id, {
+          includeSuggestions: message.includeSuggestions === true,
+          snapshot: (includeSuggestions) => current.snapshot(includeSuggestions),
+          notifyOwner,
+        }),
+      )
     }
 
     ws.on('message', (data: RawData, isBinary) => {
@@ -156,6 +229,7 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
           return
         }
         if (message.type === 'ping') return send({ type: 'pong' })
+        if (message.type === 'share') return toggleShare(message)
         session?.handleMessage(message)
       } catch (error) {
         // One bad frame or provider bug must never take down other meetings.
@@ -172,6 +246,11 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
 
   function isAllowed(req: IncomingMessage, url: URL): boolean {
     if (config.accessToken && url.searchParams.get('token') !== config.accessToken) return false
+    return originAllowed(req)
+  }
+
+  /** Browsers send Origin on WebSocket upgrades: only our own pages may connect. */
+  function originAllowed(req: IncomingMessage): boolean {
     const origin = req.headers.origin
     if (!origin) return true
     if (config.allowedOrigins.includes(origin)) return true
@@ -230,6 +309,8 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
     stt,
     llm,
     sessions,
+    bots,
+    shares,
     listen(port, host) {
       return new Promise((resolvePort, reject) => {
         server.once('error', reject)
@@ -238,7 +319,10 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
     },
     async close() {
       for (const client of wss.clients) client.terminate()
+      for (const client of botWss.clients) client.terminate()
+      for (const client of watchWss.clients) client.terminate()
       await sessions.endAll()
+      bots?.disposeAll()
       await new Promise<void>((done) => server.close(() => done()))
     },
   }

@@ -33,12 +33,27 @@ export class TranscriptStore {
   }
 }
 
-export type SpeakerNames = Readonly<Record<string, string>>
+/** Display names for diarized speakers, and which of them (if any) is the user. */
+export interface Speakers {
+  readonly names: Readonly<Record<string, string>>
+  /**
+   * The user's own diarized label. A meeting bot or a room microphone hears
+   * everyone, the user included, as one diarized stream; the user marks which
+   * speaker they are so their lines count as "me" (no copilot triggers).
+   */
+  readonly me?: string
+}
 
-export function speakerLabel(segment: TranscriptSegment, names: SpeakerNames = {}): string {
-  if (segment.source === 'me') return '我(ME)'
+const NO_SPEAKERS: Speakers = { names: {} }
+
+export function isMe(segment: TranscriptSegment, speakers: Speakers = NO_SPEAKERS): boolean {
+  return segment.source === 'me' || (segment.speaker !== undefined && segment.speaker === speakers.me)
+}
+
+export function speakerLabel(segment: TranscriptSegment, speakers: Speakers = NO_SPEAKERS): string {
+  if (isMe(segment, speakers)) return '我(ME)'
   if (!segment.speaker) return '对方'
-  const name = names[segment.speaker]
+  const name = speakers.names[segment.speaker]
   return name ? `对方(${segment.speaker}:${name})` : `对方(${segment.speaker})`
 }
 
@@ -52,8 +67,12 @@ export function formatTimestamp(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-export function formatTranscript(segments: readonly TranscriptSegment[], names: SpeakerNames = {}): string {
-  return segments.map((s) => `[${formatTimestamp(s.startMs)}] ${speakerLabel(s, names)}: ${s.text}`).join('\n')
+export function formatTranscript(segments: readonly TranscriptSegment[], speakers: Speakers = NO_SPEAKERS): string {
+  return segments.map((s) => `[${formatTimestamp(s.startMs)}] ${speakerLabel(s, speakers)}: ${s.text}`).join('\n')
+}
+
+export function sanitizeSpeakerId(input: unknown): string | undefined {
+  return typeof input === 'string' && /^S\d{1,3}$/.test(input) ? input : undefined
 }
 
 /** Accepts only short, printable names for diarized speaker ids like "S1". */

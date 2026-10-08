@@ -21,6 +21,9 @@ export interface ServerConfig {
    * (SSRF protection); the desktop app turns it on since it runs on the user's machine.
    */
   allowPrivateNetwork: boolean
+  /** Meeting bots via Attendee; null with a reason when not configured. */
+  bot: { apiKey: string; baseUrl: string; audioBaseUrl: string } | null
+  botUnavailableReason?: string
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -54,7 +57,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       .filter(Boolean),
     production: env.NODE_ENV === 'production',
     allowPrivateNetwork: env.ALLOW_PRIVATE_NETWORK === 'true',
+    ...botConfig(env),
   }
+}
+
+/**
+ * The bot service streams audio to this server over a public wss:// URL, so bot
+ * mode needs both an Attendee API key and the server's public https address.
+ */
+function botConfig(env: NodeJS.ProcessEnv): Pick<ServerConfig, 'bot' | 'botUnavailableReason'> {
+  const apiKey = env.ATTENDEE_API_KEY
+  if (!apiKey) return { bot: null, botUnavailableReason: '未配置 ATTENDEE_API_KEY' }
+  let publicUrl: URL
+  try {
+    publicUrl = new URL(env.PUBLIC_URL ?? '')
+  } catch {
+    return { bot: null, botUnavailableReason: '未配置 PUBLIC_URL（本服务的公网 https 地址）' }
+  }
+  if (publicUrl.protocol !== 'https:' && publicUrl.protocol !== 'wss:') {
+    return { bot: null, botUnavailableReason: 'PUBLIC_URL 必须是 https 地址（机器人通过 wss:// 回传音频）' }
+  }
+  const audioBaseUrl = `wss://${publicUrl.host}${publicUrl.pathname.replace(/\/+$/, '')}`
+  return { bot: { apiKey, baseUrl: env.ATTENDEE_BASE_URL || 'https://app.attendee.dev', audioBaseUrl } }
 }
 
 /** Loads `.env` into process.env when present (Node >= 20.12). */

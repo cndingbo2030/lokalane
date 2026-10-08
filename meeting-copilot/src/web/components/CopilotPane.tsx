@@ -15,15 +15,17 @@ interface Props {
   suggestions: Suggestion[]
   enabled: boolean
   canAsk: boolean
-  onAsk: (question?: string) => void
-  onRate: (id: string, rating: FeedbackRating | null) => void
+  /** Omitted for read-only viewers (live link): no ask box. */
+  onAsk?: (question?: string) => void
+  /** Omitted for read-only viewers: no rating buttons. */
+  onRate?: (id: string, rating: FeedbackRating | null) => void
 }
 
 export function CopilotPane({ suggestions, enabled, canAsk, onAsk, onRate }: Props) {
   const [question, setQuestion] = useState('')
 
   const submit = () => {
-    onAsk(question.trim() || undefined)
+    onAsk?.(question.trim() || undefined)
     setQuestion('')
   }
 
@@ -33,23 +35,25 @@ export function CopilotPane({ suggestions, enabled, canAsk, onAsk, onRate }: Pro
         <h3>AI 实时建议</h3>
         {!enabled && <span className="muted small">已关闭</span>}
       </header>
-      <form
-        className="ask"
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit()
-        }}
-      >
-        <input
-          value={question}
-          disabled={!enabled || !canAsk}
-          placeholder="问 AI：例如「怎么回应这个价格异议？」（留空=针对最新发言）"
-          onChange={(e) => setQuestion(e.target.value)}
-        />
-        <button type="submit" className="button primary" disabled={!enabled || !canAsk}>
-          立即建议
-        </button>
-      </form>
+      {onAsk && (
+        <form
+          className="ask"
+          onSubmit={(e) => {
+            e.preventDefault()
+            submit()
+          }}
+        >
+          <input
+            value={question}
+            disabled={!enabled || !canAsk}
+            placeholder="问 AI：例如「怎么回应这个价格异议？」（留空=针对最新发言）"
+            onChange={(e) => setQuestion(e.target.value)}
+          />
+          <button type="submit" className="button primary" disabled={!enabled || !canAsk}>
+            立即建议
+          </button>
+        </form>
+      )}
       <div className="pane-body" aria-live="polite">
         {enabled && suggestions.length === 0 && <p className="empty">对方提问或提出顾虑时，这里会自动出现可直接说出口的回应。</p>}
         {suggestions.map((s, index) => (
@@ -65,7 +69,7 @@ export function CopilotPane({ suggestions, enabled, canAsk, onAsk, onRate }: Pro
             </div>
             {s.text ? <Markdown text={s.text} /> : <p className="muted">思考中…</p>}
             {s.error && <p className="error-text">{s.error === 'interrupted' ? '已被新的请求打断' : s.error}</p>}
-            {s.done && !s.error && (
+            {s.done && !s.error && onRate && (
               <div className="feedback" role="group" aria-label="这条建议有用吗">
                 {(['up', 'down'] as const).map((rating) => (
                   <button

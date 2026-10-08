@@ -1,5 +1,5 @@
 import type { MeetingOutcomes } from '../../shared/outcomes.ts'
-import type { FeedbackRating, MetricsSnapshot, ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
+import type { BotStatus, FeedbackRating, MetricsSnapshot, ServerMessage, SuggestionTrigger, TranscriptSegment } from '../../shared/protocol.ts'
 
 export type Phase = 'setup' | 'connecting' | 'live' | 'ended'
 
@@ -27,7 +27,15 @@ export interface AppState {
   errors: Array<{ id: number; message: string }>
   /** Display names for diarized speakers, e.g. { S1: '王总' }. */
   speakerNames: Record<string, string>
+  /** The diarized speaker who is the user (bot / room audio hears everyone). */
+  meSpeaker?: string
   metrics?: MetricsSnapshot
+  /** Bot mode: where the meeting bot is (joining, waiting room, recording…). */
+  bot?: BotStatus
+  /** Owner: the read-only live link (token absent = off). */
+  share?: { token?: string; includeSuggestions: boolean; viewers: number }
+  /** Viewer of a live link: meeting details and whether the link has ended. */
+  watch?: { title?: string; startedAt?: number; ended?: 'stopped' | 'ended' }
 }
 
 export type Action =
@@ -37,6 +45,7 @@ export type Action =
   | { type: 'dismissError'; id: number }
   | { type: 'rate'; id: string; rating: FeedbackRating | null }
   | { type: 'renameSpeaker'; speaker: string; name: string }
+  | { type: 'setMeSpeaker'; speaker: string | null }
   | { type: 'toggleActionItem'; id: string }
   | { type: 'reset' }
 
@@ -73,6 +82,8 @@ export function reducer(state: AppState, action: Action): AppState {
       else delete speakerNames[action.speaker]
       return { ...state, speakerNames }
     }
+    case 'setMeSpeaker':
+      return { ...state, meSpeaker: action.speaker ?? undefined }
     case 'toggleActionItem': {
       const data = state.outcomes.data
       if (!data) return state
@@ -127,6 +138,29 @@ function applyServerMessage(state: AppState, message: ServerMessage): AppState {
       }
     case 'metrics':
       return { ...state, metrics: message.metrics }
+    case 'speakers':
+      return { ...state, speakerNames: message.names, meSpeaker: message.me }
+    case 'share':
+      return { ...state, share: { token: message.token, includeSuggestions: message.includeSuggestions, viewers: message.viewers } }
+    case 'snapshot':
+      // A viewer (re)connected: replace everything with the server's view.
+      return {
+        ...state,
+        phase: 'live',
+        segments: message.segments,
+        translations: message.translations,
+        speakerNames: message.speakerNames,
+        meSpeaker: message.me,
+        suggestions: (message.suggestions ?? []).map((s) => ({ ...s, done: true })),
+        summary: message.summary ? { status: 'done', text: message.summary } : { status: 'idle', text: '' },
+        outcomes: message.outcomes ? { status: 'done', data: message.outcomes } : { status: 'idle' },
+        watch: { title: message.title, startedAt: message.startedAt },
+      }
+    case 'share.ended':
+      return { ...state, phase: 'ended', watch: { ...state.watch, ended: message.reason } }
+    case 'bot':
+      // A later status without a link must not hide the recording link.
+      return { ...state, bot: { state: message.state, detail: message.detail, recordingUrl: message.recordingUrl ?? state.bot?.recordingUrl } }
     case 'error':
       return addError(state, message.message)
     case 'pong':
@@ -160,17 +194,21 @@ function addError(state: AppState, message: string): AppState {
   return { ...state, errors: [...state.errors, { id: ++errorCounter, message }].slice(-3) }
 }
 
-export function speakerDisplay(segment: TranscriptSegment, names: Record<string, string>): string {
-  if (segment.source === 'me') return '我'
+export function isMine(segment: TranscriptSegment, meSpeaker?: string): boolean {
+  return segment.source === 'me' || (segment.speaker !== undefined && segment.speaker === meSpeaker)
+}
+
+export function speakerDisplay(segment: TranscriptSegment, names: Record<string, string>, meSpeaker?: string): string {
+  if (isMine(segment, meSpeaker)) return '我'
   if (!segment.speaker) return '对方'
   return names[segment.speaker] ?? `对方 ${segment.speaker}`
 }
 
-export function transcriptToMarkdown(state: Pick<AppState, 'segments' | 'translations' | 'speakerNames'>): string {
+export function transcriptToMarkdown(state: Pick<AppState, 'segments' | 'translations' | 'speakerNames' | 'meSpeaker'>): string {
   const lines = state.segments
     .filter((s) => s.isFinal)
     .map((s) => {
-      const who = speakerDisplay(s, state.speakerNames)
+      const who = speakerDisplay(s, state.speakerNames, state.meSpeaker)
       const translation = state.translations[s.id]
       return `- **${who}** (${formatClock(s.startMs)}): ${s.text}${translation ? `\n  - _${translation}_` : ''}`
     })

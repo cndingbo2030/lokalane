@@ -21,6 +21,19 @@ const PLATFORM_LABELS: Record<MeetingPlatform, string> = {
 }
 
 /**
+ * The link a meeting bot should join. Same as `url`, except that Zoom links go
+ * back to the standard /j/<id> form: `url` points at Zoom's browser client,
+ * which bot services do not take.
+ */
+export function botJoinUrl(link: ParsedMeetingLink): string {
+  if (link.platform !== 'zoom' || !link.meetingId || !/^\d+$/.test(link.meetingId)) return link.url
+  const url = new URL(link.url)
+  const join = new URL(`https://${url.hostname}/j/${link.meetingId}`)
+  if (link.passcode) join.searchParams.set('pwd', link.passcode)
+  return join.toString()
+}
+
+/**
  * Detect the meeting platform from a pasted invite link (or a whole pasted
  * invitation text that contains a link) and extract the meeting id / passcode.
  */

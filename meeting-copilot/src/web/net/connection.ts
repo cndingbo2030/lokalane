@@ -32,14 +32,29 @@ export class CopilotConnection {
   private sessionId: string | null = null
   private readonly backlog: ArrayBuffer[] = []
   private droppedFrames = 0
+  private retryTimer: number | undefined
+  private downSince: number | null = null
 
   constructor(
     private readonly url: string,
     private readonly start: ClientMessage & { type: 'start' },
     private readonly handlers: Handlers,
-  ) {}
+    /**
+     * `keepTryingMs`: keep reconnecting this long instead of giving up after a few
+     * attempts (bot mode: the meeting goes on without this device, e.g. a phone
+     * that slept). Reconnects right away when the device comes back online.
+     */
+    private readonly options: { keepTryingMs?: number } = {},
+  ) {
+    if (options.keepTryingMs) {
+      window.addEventListener('online', this.wake)
+      document.addEventListener('visibilitychange', this.wake)
+    }
+  }
 
   connect(): void {
+    window.clearTimeout(this.retryTimer)
+    this.retryTimer = undefined
     this.closedByUser = false
     this.handlers.onStatus(this.retries === 0 && !this.sessionId ? 'connecting' : 'reconnecting')
     const socket = new WebSocket(this.url)
@@ -61,6 +76,7 @@ export class CopilotConnection {
         return
       }
       if (message.type === 'ready') {
+        this.downSince = null
         this.sessionId = message.sessionId
         this.handlers.onStatus('open')
         this.replayBacklog()
@@ -72,14 +88,21 @@ export class CopilotConnection {
       window.clearInterval(this.replayTimer)
       this.replayTimer = undefined
       if (this.closedByUser) return this.handlers.onStatus('closed')
-      if (this.retries >= MAX_RETRIES) {
+      this.downSince ??= Date.now()
+      const exhausted = this.options.keepTryingMs ? Date.now() - this.downSince > this.options.keepTryingMs : this.retries >= MAX_RETRIES
+      if (exhausted) {
         this.handlers.onMessage({ type: 'error', message: '与服务器的连接已断开，请检查网络后开始新会议', recoverable: false })
         return this.handlers.onStatus('closed')
       }
       const delay = Math.min(10_000, 500 * 2 ** this.retries++)
       this.handlers.onStatus('reconnecting')
-      window.setTimeout(() => this.connect(), delay)
+      this.retryTimer = window.setTimeout(() => this.connect(), delay)
     }
+  }
+
+  /** Back online / back in the foreground: retry now instead of waiting out the backoff. */
+  private readonly wake = () => {
+    if (this.retryTimer !== undefined && document.visibilityState === 'visible') this.connect()
   }
 
   send(message: ClientMessage): void {
@@ -112,6 +135,11 @@ export class CopilotConnection {
   close(): void {
     this.send({ type: 'leave' })
     this.closedByUser = true
+    window.clearTimeout(this.retryTimer)
+    if (this.options.keepTryingMs) {
+      window.removeEventListener('online', this.wake)
+      document.removeEventListener('visibilitychange', this.wake)
+    }
     window.clearInterval(this.pingTimer)
     window.clearInterval(this.replayTimer)
     this.backlog.length = 0

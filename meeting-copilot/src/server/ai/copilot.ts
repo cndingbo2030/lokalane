@@ -1,7 +1,7 @@
 import { detectReplyLanguage, languageName } from '../../shared/language.ts'
 import type { DocumentRef, LanguageCode, SuggestionTrigger } from '../../shared/protocol.ts'
 import type { LlmClient } from '../llm/types.ts'
-import { formatTranscript, speakerLabel, type SpeakerNames, type TranscriptStore } from '../transcript.ts'
+import { formatTranscript, isMe, speakerLabel, type Speakers, type TranscriptStore } from '../transcript.ts'
 import { copilotPrompt, copilotSystem } from './prompts.ts'
 
 export interface CopilotEvents {
@@ -20,7 +20,7 @@ export interface CopilotOptions {
   transcript: TranscriptStore
   cachedContext?: string
   documents?: DocumentRef[]
-  speakerNames?: () => SpeakerNames
+  speakers?: () => Speakers
   events: CopilotEvents
   /** Window of transcript sent with each request. */
   windowMs?: number
@@ -81,11 +81,11 @@ export class Copilot {
 
     const id = `${this.options.idPrefix}-sg${++this.counter}`
     const { llm, model, target, transcript, cachedContext, documents, events } = this.options
-    const names = this.options.speakerNames?.() ?? {}
+    const speakers = this.options.speakers?.()
     const recent = transcript.recent(this.options.windowMs ?? 4 * 60_000)
     const focusSegment = recent.find((s) => s.id === request.trigger.segmentId)
-    const focus = focusSegment ? `${speakerLabel(focusSegment, names)}: ${focusSegment.text}` : request.trigger.text
-    const replyLanguage = detectReplyLanguage(focusSegment, recent.filter((s) => s.source === 'remote'))
+    const focus = focusSegment ? `${speakerLabel(focusSegment, speakers)}: ${focusSegment.text}` : request.trigger.text
+    const replyLanguage = detectReplyLanguage(focusSegment, recent.filter((s) => !isMe(s, speakers)))
     const trigger: SuggestionTrigger = replyLanguage ? { ...request.trigger, replyLanguage } : request.trigger
 
     // Buffer the first few characters so a "SKIP" answer never flashes a card.
@@ -107,7 +107,7 @@ export class Copilot {
         documents,
         prompt: copilotPrompt(
           request.trigger.kind,
-          formatTranscript(recent, names),
+          formatTranscript(recent, speakers),
           focus,
           request.question,
           replyLanguage ? languageName(replyLanguage) : undefined,

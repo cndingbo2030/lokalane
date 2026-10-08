@@ -1,6 +1,6 @@
 import type { DocumentRef } from '../../shared/protocol.ts'
 
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   const token = new URLSearchParams(location.search).get('token')
   return `${path}${token ? `?token=${encodeURIComponent(token)}` : ''}`
 }

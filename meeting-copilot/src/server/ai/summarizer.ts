@@ -1,7 +1,7 @@
 import type { MeetingOutcomes } from '../../shared/outcomes.ts'
 import type { DocumentRef, LanguageCode } from '../../shared/protocol.ts'
 import type { LlmClient } from '../llm/types.ts'
-import { formatTranscript, type SpeakerNames, type TranscriptStore } from '../transcript.ts'
+import { formatTranscript, type Speakers, type TranscriptStore } from '../transcript.ts'
 import { normalizeOutcomes, OUTCOMES_SCHEMA } from './outcomes.ts'
 import { analystSystem, outcomesTask, summaryTask, transcriptBlock } from './prompts.ts'
 
@@ -12,7 +12,7 @@ interface AnalysisOptions {
   transcript: TranscriptStore
   cachedContext?: string
   documents?: DocumentRef[]
-  speakerNames?: SpeakerNames
+  speakers?: Speakers
   signal?: AbortSignal
 }
 
@@ -23,7 +23,7 @@ function shared(options: AnalysisOptions) {
     system: analystSystem(options.target),
     cachedContext: options.cachedContext,
     documents: options.documents,
-    cachedPrompt: transcriptBlock(formatTranscript(options.transcript.all(), options.speakerNames)),
+    cachedPrompt: transcriptBlock(formatTranscript(options.transcript.all(), options.speakers)),
     signal: options.signal,
   }
 }
