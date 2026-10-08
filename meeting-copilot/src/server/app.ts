@@ -118,6 +118,8 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
         llm: llm.name,
         documents: documents.name,
         models: config.models,
+        // Lets `npm run preflight` spot a server started before .env was last changed.
+        sonioxMaxEndpointDelayMs: config.sonioxMaxEndpointDelayMs ?? null,
         auth: Boolean(config.accessToken),
         bot: bots ? { enabled: true } : { enabled: false, reason: config.botUnavailableReason },
       })

@@ -227,7 +227,7 @@ describe('meeting bot mode', () => {
   it('reports why bot mode is off', async () => {
     const { url } = await start()
     const health = await (await fetch(url().replace('ws://', 'http://').replace('/ws', '/health'))).json()
-    expect(health).toMatchObject({ bot: { enabled: false, reason: expect.stringContaining('ATTENDEE_API_KEY') } })
+    expect(health).toMatchObject({ bot: { enabled: false, reason: expect.stringContaining('ATTENDEE_API_KEY') }, sonioxMaxEndpointDelayMs: null })
   })
 })
 

@@ -89,6 +89,21 @@ describe('preflight: a server already running', () => {
     await ready.stop()
   })
 
+  it('spots one still running with the settings from before .env was edited', async () => {
+    const models = { copilot: 'claude-opus-5-5', translate: 'claude-sonnet-5-5', summary: 'claude-opus-5-5' }
+    const stale = await serve({ ok: true, stt: 'soniox', llm: 'anthropic', models: { ...models, translate: 'claude-opus-5-5' }, sonioxMaxEndpointDelayMs: null })
+    const result = await runningServer(stale.port, { models, sonioxMaxEndpointDelayMs: 1_000 })
+    expect(result).toMatchObject({ status: 'fail', detail: expect.stringContaining('Ctrl+C') })
+    expect(result.title).toContain('翻译模型是 claude-opus-5-5，.env 里是 claude-sonnet-5-5')
+    expect(result.title).toContain('断句上限是 默认，.env 里是 1000')
+    await stale.stop()
+
+    // A server from before /health reported the endpoint delay: only the models are compared.
+    const older = await serve({ ok: true, stt: 'soniox', llm: 'anthropic', models })
+    expect(await runningServer(older.port, { models, sonioxMaxEndpointDelayMs: 1_000 })).toMatchObject({ status: 'ok' })
+    await older.stop()
+  })
+
   it('reports a free port', async () => {
     const { port, stop } = await serve({})
     await stop()

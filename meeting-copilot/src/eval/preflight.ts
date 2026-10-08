@@ -51,7 +51,7 @@ show(nodeVersion())
 show(envFile(dotenvText))
 shellOverrides(dotenvText, shell).forEach(show)
 configChecks(config, process.env).forEach(show)
-show(await runningServer(config.port))
+show(await runningServer(config.port, { models: config.models, sonioxMaxEndpointDelayMs: config.sonioxMaxEndpointDelayMs }))
 
 const keyFormat = anthropicKeyFormat(process.env.ANTHROPIC_API_KEY)
 if (keyFormat) show(keyFormat)

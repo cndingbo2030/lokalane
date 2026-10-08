@@ -127,12 +127,19 @@ export function configChecks(config: ServerConfig, env: NodeJS.ProcessEnv): Chec
   return results
 }
 
+/** The settings a running server reports in /health, to compare with the current .env. */
+export interface ExpectedServer {
+  models: ServerConfig['models']
+  sonioxMaxEndpointDelayMs?: number
+}
+
 /**
- * What a server already running on `port` loaded. One started before the keys
- * were filled in keeps running in mock mode until it is restarted.
+ * What a server already running on `port` loaded. The server reads .env only at
+ * startup: one started before the keys were filled in stays in mock mode, and one
+ * started before .env was last edited keeps the old models and settings.
  */
-export async function runningServer(port: number): Promise<CheckResult> {
-  let health: { stt?: unknown; llm?: unknown }
+export async function runningServer(port: number, expected?: ExpectedServer): Promise<CheckResult> {
+  let health: { stt?: unknown; llm?: unknown; models?: Partial<ServerConfig['models']>; sonioxMaxEndpointDelayMs?: number | null }
   try {
     const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
     health = (await response.json()) as typeof health
@@ -147,7 +154,29 @@ export async function runningServer(port: number): Promise<CheckResult> {
       detail: '它是在填好密钥之前启动的：在运行它的终端按 Ctrl+C，再重新 npm run dev',
     }
   }
+  const stale = expected ? staleSettings(health, expected) : []
+  if (stale.length > 0) {
+    return {
+      status: 'fail',
+      title: `${port} 端口上正在运行的服务还在用旧配置：${stale.join('；')}`,
+      detail: '服务只在启动时读取 .env：在运行它的终端按 Ctrl+C，再重新 npm run dev',
+    }
+  }
   return { status: 'ok', title: `${port} 端口上的服务已在运行：STT ${String(health.stt)}，LLM ${String(health.llm)}` }
+}
+
+function staleSettings(health: { models?: Partial<ServerConfig['models']>; sonioxMaxEndpointDelayMs?: number | null }, expected: ExpectedServer): string[] {
+  const labels: Record<keyof ServerConfig['models'], string> = { copilot: '建议', translate: '翻译', summary: '纪要' }
+  const stale: string[] = []
+  for (const role of Object.keys(labels) as Array<keyof ServerConfig['models']>) {
+    const running = health.models?.[role]
+    if (running !== undefined && running !== expected.models[role]) stale.push(`${labels[role]}模型是 ${running}，.env 里是 ${expected.models[role]}`)
+  }
+  // Servers from before this field existed do not report it: only compare when present.
+  if (health.sonioxMaxEndpointDelayMs !== undefined && (health.sonioxMaxEndpointDelayMs ?? undefined) !== expected.sonioxMaxEndpointDelayMs) {
+    stale.push(`断句上限是 ${health.sonioxMaxEndpointDelayMs ?? '默认'}，.env 里是 ${expected.sonioxMaxEndpointDelayMs ?? '默认'}`)
+  }
+  return stale
 }
 
 /** A tiny real request through the app's own client: same headers, beta and parameters as in a meeting. */
