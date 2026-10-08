@@ -2,8 +2,11 @@ import WebSocket from 'ws'
 import { joinText } from '../../shared/language.ts'
 import type { LanguageCode } from '../../shared/protocol.ts'
 import { AUDIO_SAMPLE_RATE } from '../../shared/protocol.ts'
+import { closeDetail, HANDSHAKE_TIMEOUT_MS, isFatalStatus, MAX_QUEUED_FRAMES, watchLiveness } from './socket.ts'
 import { waitForClose } from './soniox.ts'
 import type { SttProvider, SttResult, SttStream, SttStreamOptions } from './types.ts'
+
+const DEEPGRAM_URL = 'wss://api.deepgram.com/v1/listen'
 
 interface DeepgramWord {
   word: string
@@ -103,12 +106,19 @@ export function deepgramLanguage(languages: LanguageCode[]): string {
   return concrete[0] === 'zh' ? 'zh-CN' : concrete[0]
 }
 
+export interface DeepgramSettings {
+  /** Tests point the provider at a local fake server. */
+  url?: string
+  livenessIntervalMs?: number
+}
+
 export class DeepgramProvider implements SttProvider {
   readonly name = 'deepgram'
 
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
+    private readonly settings: DeepgramSettings = {},
   ) {}
 
   open(options: SttStreamOptions): SttStream {
@@ -126,11 +136,15 @@ export class DeepgramProvider implements SttProvider {
       vad_events: 'true',
       diarize: String(options.diarize),
     })
-    const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
+    const socket = new WebSocket(`${this.settings.url ?? DEEPGRAM_URL}?${params}`, {
       headers: { Authorization: `Token ${this.apiKey}` },
+      handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
     })
     const accumulator = new DeepgramAccumulator()
     const queue: Uint8Array[] = []
+    let closing = false
+    // HTTP status of a rejected handshake (bad key, no credit).
+    let rejectedStatus: number | undefined
     let lastAudioAt = Date.now()
 
     const keepAlive = setInterval(() => {
@@ -138,6 +152,7 @@ export class DeepgramProvider implements SttProvider {
         socket.send(JSON.stringify({ type: 'KeepAlive' }))
       }
     }, 3_000)
+    const stopWatching = watchLiveness(socket, this.settings.livenessIntervalMs)
 
     socket.on('open', () => {
       for (const chunk of queue.splice(0)) socket.send(chunk)
@@ -151,19 +166,32 @@ export class DeepgramProvider implements SttProvider {
       }
     })
     socket.on('unexpected-response', (_req, res) => {
-      options.onError(new Error(`Deepgram rejected the connection (HTTP ${res.statusCode})`))
+      rejectedStatus = res.statusCode ?? 0
+      const reason = res.headers['dg-error']
+      options.onError(new Error(`Deepgram rejected the connection (HTTP ${rejectedStatus}${typeof reason === 'string' ? `: ${reason}` : ''})`))
+      // With this listener registered, ws leaves the handshake pending (stuck in CONNECTING): end it.
+      socket.terminate()
     })
-    socket.on('error', (error) => options.onError(error))
-    socket.on('close', () => clearInterval(keepAlive))
+    socket.on('error', (error) => {
+      // After a rejection, terminate() adds a generic "closed before the connection was established".
+      if (rejectedStatus === undefined) options.onError(error)
+    })
+    socket.on('close', (code, reason) => {
+      clearInterval(keepAlive)
+      stopWatching()
+      if (!closing) options.onClose?.({ detail: closeDetail('Deepgram', code, reason, rejectedStatus), fatal: isFatalStatus(rejectedStatus) })
+    })
 
     return {
       write(pcm) {
         lastAudioAt = Date.now()
         if (socket.readyState === WebSocket.OPEN) socket.send(pcm)
-        else if (socket.readyState === WebSocket.CONNECTING && queue.length < 100) queue.push(pcm)
+        else if (socket.readyState === WebSocket.CONNECTING && queue.length < MAX_QUEUED_FRAMES) queue.push(pcm)
       },
       async close() {
+        closing = true
         clearInterval(keepAlive)
+        stopWatching()
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: 'CloseStream' }))
           await waitForClose(socket, 3_000)

@@ -1,6 +1,7 @@
 import WebSocket from 'ws'
 import type { LanguageCode } from '../../shared/protocol.ts'
 import { AUDIO_SAMPLE_RATE } from '../../shared/protocol.ts'
+import { closeDetail, HANDSHAKE_TIMEOUT_MS, isFatalStatus, MAX_QUEUED_FRAMES, watchLiveness } from './socket.ts'
 import type { SttProvider, SttResult, SttStream, SttStreamOptions } from './types.ts'
 
 const SONIOX_URL = 'wss://stt-rt.soniox.com/transcribe-websocket'
@@ -166,6 +167,7 @@ export interface SonioxSettings {
   /** Tests point the provider at a local fake server. */
   url?: string
   finalizeAfterGapMs?: number
+  livenessIntervalMs?: number
 }
 
 export class SonioxProvider implements SttProvider {
@@ -178,15 +180,21 @@ export class SonioxProvider implements SttProvider {
   ) {}
 
   open(options: SttStreamOptions): SttStream {
-    const socket = new WebSocket(this.settings.url ?? SONIOX_URL)
+    const socket = new WebSocket(this.settings.url ?? SONIOX_URL, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS })
     const accumulator = new SonioxAccumulator()
     const queue: Uint8Array[] = []
     let open = false
+    let closing = false
+    // Soniox reports an error (HTTP-style status) and then closes the connection.
+    let errorStatus: number | undefined
     let lastAudioAt = Date.now()
 
     const keepAlive = setInterval(() => {
-      if (open && Date.now() - lastAudioAt > 3_000) socket.send(JSON.stringify({ type: 'keepalive' }))
+      if (open && socket.readyState === WebSocket.OPEN && Date.now() - lastAudioAt > 3_000) {
+        socket.send(JSON.stringify({ type: 'keepalive' }))
+      }
     }, 3_000)
+    const stopWatching = watchLiveness(socket, this.settings.livenessIntervalMs)
     const finalizer = new PauseFinalizer(
       this.settings.finalizeAfterGapMs ?? FINALIZE_AFTER_GAP_MS,
       () => open && socket.readyState === WebSocket.OPEN && accumulator.hasOpenUtterance,
@@ -222,6 +230,7 @@ export class SonioxProvider implements SttProvider {
         return
       }
       if (message.error_code || message.error_message) {
+        errorStatus = Number(message.error_code) || undefined
         options.onError(new Error(`Soniox ${message.error_code ?? ''}: ${message.error_message ?? 'unknown error'}`))
       }
       for (const result of accumulator.handle(message)) options.onResult(result)
@@ -229,9 +238,11 @@ export class SonioxProvider implements SttProvider {
     })
 
     socket.on('error', (error) => options.onError(error))
-    socket.on('close', () => {
+    socket.on('close', (code, reason) => {
       clearInterval(keepAlive)
       finalizer.stop()
+      stopWatching()
+      if (!closing) options.onClose?.({ detail: closeDetail('Soniox', code, reason, errorStatus), fatal: isFatalStatus(errorStatus) })
     })
 
     return {
@@ -239,11 +250,13 @@ export class SonioxProvider implements SttProvider {
         lastAudioAt = Date.now()
         finalizer.onAudio()
         if (open && socket.readyState === WebSocket.OPEN) socket.send(pcm)
-        else if (socket.readyState === WebSocket.CONNECTING && queue.length < 100) queue.push(pcm)
+        else if (socket.readyState === WebSocket.CONNECTING && queue.length < MAX_QUEUED_FRAMES) queue.push(pcm)
       },
       async close() {
+        closing = true
         clearInterval(keepAlive)
         finalizer.stop()
+        stopWatching()
         if (socket.readyState === WebSocket.OPEN) {
           // An empty frame asks Soniox to finalize remaining audio and close.
           socket.send('')

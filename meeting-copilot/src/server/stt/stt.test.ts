@@ -1,10 +1,12 @@
+import { EventEmitter } from 'node:events'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WebSocketServer, type WebSocket as ServerSocket } from 'ws'
-import { DeepgramAccumulator, deepgramLanguage } from './deepgram.ts'
+import WebSocket, { WebSocketServer } from 'ws'
+import { DeepgramAccumulator, deepgramLanguage, DeepgramProvider } from './deepgram.ts'
 import { MockSttProvider } from './mock.ts'
+import { watchLiveness } from './socket.ts'
 import { PauseFinalizer, SonioxAccumulator, SonioxProvider } from './soniox.ts'
-import type { SttResult, SttStreamOptions } from './types.ts'
+import type { SttCloseInfo, SttResult, SttStreamOptions } from './types.ts'
 
 const dgResult = (transcript: string, opts: { isFinal?: boolean; speechFinal?: boolean; start?: number; speaker?: number } = {}) => ({
   type: 'Results',
@@ -147,7 +149,7 @@ async function fakeSoniox() {
   const configs: Array<Record<string, unknown>> = []
   const controls: Array<Record<string, unknown> | ''> = []
   const audio = { frames: 0 }
-  let client: ServerSocket | undefined
+  let client: WebSocket | undefined
   server.on('connection', (socket) => {
     client = socket
     socket.on('message', (data, isBinary) => {
@@ -174,6 +176,13 @@ async function fakeSoniox() {
     controls,
     audio,
     send: (message: unknown) => client!.send(JSON.stringify(message)),
+    /** The server ends the connection on its own, as on a server error or restart. */
+    drop: () => client!.close(1011, 'internal error'),
+    /** Soniox's error flow: an error response, then the connection closes. */
+    fail: (status: number, message: string) => {
+      client!.send(JSON.stringify({ error_code: status, error_type: 'request_error', error_message: message }))
+      client!.close()
+    },
     close: async () => {
       for (const socket of server.clients) socket.terminate()
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -220,6 +229,94 @@ describe('SonioxProvider against a fake Soniox server', () => {
     expect(soniox.configs[0]).toMatchObject({ max_endpoint_delay_ms: 1_000 })
     await stream.close()
     await soniox.close()
+  })
+
+  it('reports a dropped stream, marks a bad key as fatal, and stays quiet when closed on purpose', async () => {
+    const soniox = await fakeSoniox()
+    const closes: SttCloseInfo[] = []
+    const errors: string[] = []
+    const open = () =>
+      new SonioxProvider('key', 'stt-rt-v5', { url: soniox.url }).open({
+        ...streamOptions([]),
+        onError: (e) => errors.push(e.message),
+        onClose: (info) => closes.push(info),
+      })
+
+    open().write(frame)
+    await vi.waitFor(() => expect(soniox.audio.frames).toBe(1))
+    soniox.drop()
+    await vi.waitFor(() => expect(closes).toHaveLength(1))
+    expect(closes[0]).toEqual({ fatal: false, detail: expect.stringContaining('1011') })
+
+    open().write(frame)
+    await vi.waitFor(() => expect(soniox.audio.frames).toBe(2))
+    soniox.fail(401, 'Invalid API key.')
+    await vi.waitFor(() => expect(closes).toHaveLength(2))
+    expect(closes[1]).toEqual({ fatal: true, detail: expect.stringContaining('错误 401') })
+    expect(errors).toContainEqual(expect.stringContaining('Invalid API key.'))
+
+    const ours = open()
+    ours.write(frame)
+    await vi.waitFor(() => expect(soniox.audio.frames).toBe(3))
+    await ours.close()
+    expect(closes).toHaveLength(2)
+    await soniox.close()
+  })
+})
+
+describe('DeepgramProvider', () => {
+  it('ends a rejected handshake with one clear error instead of hanging in CONNECTING', async () => {
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0, verifyClient: (_info, done) => done(false, 401, 'Unauthorized') })
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+    const closes: SttCloseInfo[] = []
+    const errors: string[] = []
+    const stream = new DeepgramProvider('bad-key', 'nova-3', { url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}/v1/listen` }).open({
+      source: 'remote',
+      languages: ['en'],
+      diarize: true,
+      onResult: () => {},
+      onError: (e) => errors.push(e.message),
+      onClose: (info) => closes.push(info),
+    })
+    stream.write(new Uint8Array(3_200))
+    await vi.waitFor(() => expect(closes).toEqual([{ fatal: true, detail: expect.stringContaining('错误 401') }]))
+    expect(errors).toEqual([expect.stringContaining('HTTP 401')])
+    await stream.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+})
+
+describe('watchLiveness', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const fakeSocket = () => Object.assign(new EventEmitter(), { readyState: WebSocket.OPEN, ping: vi.fn(), terminate: vi.fn() })
+
+  it('terminates a connection that stops answering pings', () => {
+    vi.useFakeTimers()
+    const socket = fakeSocket()
+    const stop = watchLiveness(socket as unknown as WebSocket, 1_000)
+    vi.advanceTimersByTime(1_000)
+    expect(socket.ping).toHaveBeenCalledTimes(1)
+    socket.emit('pong')
+    vi.advanceTimersByTime(2_000) // two more pings, no answer
+    expect(socket.terminate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1_000)
+    expect(socket.terminate).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it('treats any message as a sign of life', () => {
+    vi.useFakeTimers()
+    const socket = fakeSocket()
+    const stop = watchLiveness(socket as unknown as WebSocket, 1_000)
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(1_000)
+      socket.emit('message', Buffer.from('{}'), false)
+    }
+    expect(socket.terminate).not.toHaveBeenCalled()
+    stop()
   })
 })
 

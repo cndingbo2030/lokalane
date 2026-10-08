@@ -104,6 +104,7 @@ a44347b Add AI meeting copilot: live transcription, translation and reply sugges
 - 默认 Soniox `stt-rt-v5`（`wss://stt-rt.soniox.com/transcribe-websocket`，静音超过 3 秒发 keepalive）；备选 Deepgram `nova-3`；另有 `mock`。
 - 断句（`soniox.ts`）：除了 Soniox 自己的端点检测（`<end>`），音频暂停 500 ms（客户端 VAD 停发）且还有未定稿内容时，`PauseFinalizer` 发一次 `{"type":"finalize"}`，收到 `<fin>` 就定稿。每次停顿最多发一次（Soniox 要求先有约 200 ms 静音，且调用太频繁可能断开连接；VAD 的 2.5 s 拖尾满足前者，而且通常 Soniox 自己的端点检测已经先定稿，finalize 只是兜底）。可选 `SONIOX_MAX_ENDPOINT_DELAY_MS`（500–3000）收紧端点上限，留空时不发送该字段。
 - Soniox 官方文档的几条事实：按**打开的流时长**计费（所以对 Soniox 来说 VAD 基本不省钱，它省的是带宽和按音频计费的 Deepgram 费用）；**出错后服务端立即断开连接**；单条流最长 300 分钟，到时返回 413 `max_duration_reached` 并断开，需要开新连接（见 P1 ②）；把 `api_key` 放在首条配置消息里的方式已标为 deprecated，目前仍可用（P3 再迁移）。
+- 断流重连（P1 ②）：适配器意外断开时通过 `onClose` 通知会话，会话在下一帧音频时开新流（新的 `AudioClock`），失败退避、致命错误（密钥/余额）不重试；另有 10 秒一次的 ping 存活检测。细节见第 7 节 P1 ②。
 - 服务商选择（`config.ts:38-42`）：
   - `STT_PROVIDER` 留空时，按已填的密钥自动选。
   - **显式写了 `soniox` / `deepgram` 但对应密钥为空时，会静默退回 mock**，不会改用另一家的密钥。`.env.example` 默认 `STT_PROVIDER=soniox`。
@@ -306,7 +307,22 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 - 修好并验证之前，让用户关掉 VAD 开关。Soniox 按打开的流计费，关掉 VAD 基本不增加费用。
 - 注意：Soniox 对未知配置字段的处理方式要先查官方文档确认。字段名写错导致握手被拒，整场会议就没有字幕，比现在的问题更严重。改完要用真密钥实测（让用户在彩排里验证）。
 
-**② STT 断流不重连（已确认的真实缺口，两家适配器都有）**
+**② STT 断流不重连 —— ✅ 已实现（2026-10-08），待彩排验证（断 Wi-Fi 那一步）**
+- 适配器（Soniox、Deepgram）：
+  - 用 `closing` 标记区分主动关闭；意外关闭时调用新的 `onClose({ detail, fatal })`。
+  - 4xx（408/413/429 除外）视为致命错误：密钥错误、余额不足、请求被拒都不重连（`isFatalStatus`，`stt/socket.ts`）。
+  - Deepgram 握手被拒时 `terminate()`，只报一条带 HTTP 状态码（和 `dg-error`）的错误，不再卡在 CONNECTING。
+  - 握手超时 10 秒；连接中的排队上限从 100 帧提到 1500 帧（覆盖客户端断线重连后 8 倍速补发的缓冲）；keepalive 发送前检查 `readyState`。
+  - 新增**存活检测**（`watchLiveness`）：每 10 秒 ping 一次，收到 pong 或任何消息就算活着，连续两个间隔没回应就 `terminate()` 触发重连。专门对付"连接已死但没关闭"的半开连接（换 Wi-Fi、睡眠），否则 TCP 要几分钟才发现，这期间字幕悄无声息地停住。Soniox 官方 Python SDK 用的 websockets 库默认就发 ping，所以服务端会回 pong；彩排时如果每隔约 30 秒出现一次「连接中断」，说明对方不回 pong，要把这项关掉。
+- 会话（`session.ts`）：
+  - 每条流有自己的 `AudioClock`（`LiveStream`），新流的时间戳从 0 开始，时间轴连续。
+  - 掉线时把这一路**未定稿的部分结果定稿**（音频已随旧流丢失，保留已识别的文字），旧流迟到的部分结果忽略，迟到的定稿仍然接收。
+  - 重连节奏：旧流工作过（识别出过内容或存活超过 30 秒）就在下一帧音频时立即重开；连续失败按 1、2、4…最多 30 秒退避；致命错误不再重试，提示「语音识别已停止 … 请检查密钥或账户余额」。
+  - 界面提示：掉线时显示一条「语音识别连接中断 (…)…，正在自动重连」（错误列表按内容去重），字幕恢复即重连成功。
+- 测试：`stt.test.ts`（假 Soniox 服务器：意外断开、401 致命、主动关闭不报；Deepgram 握手被拒；存活检测）、`session.test.ts`（重开 + 时间轴连续、保留未定稿句子、退避与致命错误）。
+- 以下为原始分析（保留备查）。
+
+**（原始分析）② STT 断流不重连（已确认的真实缺口，两家适配器都有）**
 - Soniox（`src/server/stt/soniox.ts`）：
   - 服务端关闭连接（网络抖动、服务端错误、单流时长上限）后，`close` 回调只清 keepalive（`soniox.ts:158`），不通知会话。
   - `write()` 只在 OPEN 时发送、CONNECTING 时排队，CLOSING/CLOSED 时直接丢弃音频（`soniox.ts:161-165`）。

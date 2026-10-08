@@ -353,6 +353,82 @@ describe('MeetingSession phase 1', () => {
   })
 })
 
+describe('MeetingSession STT reconnects', () => {
+  function clocked() {
+    const messages: ServerMessage[] = []
+    const stt = new FakeStt()
+    let clock = 0
+    const session = new MeetingSession({
+      send: (m) => messages.push(m),
+      stt,
+      llm: new MockLlm(),
+      models: { copilot: 'c', translate: 't', summary: 's' },
+      metricsIntervalMs: 0,
+      now: () => clock,
+    })
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false } } })
+    return {
+      stt,
+      messages,
+      at: (ms: number) => (clock = ms),
+      audio: (captureMs: number) => session.handleAudio(new Uint8Array(encodeAudioFrame('remote', new Int16Array(1600), captureMs))),
+      finals: () => messages.flatMap((m) => (m.type === 'transcript' && m.segment.isFinal ? [m.segment] : [])),
+      errors: () => messages.flatMap((m) => (m.type === 'error' ? [m.message] : [])),
+    }
+  }
+
+  it('reopens a dropped stream on the next audio, with a fresh clock so the timeline continues', () => {
+    const t = clocked()
+    t.audio(1_000)
+    t.stt.opened[0].onResult({ text: 'first', isFinal: true, startMs: 0, endMs: 100 })
+    t.at(40_000)
+    t.stt.opened[0].onClose!({ detail: 'Soniox 断开了连接（代码 1006）', fatal: false })
+    expect(t.errors()).toEqual(['语音识别连接中断 (remote): Soniox 断开了连接（代码 1006），正在自动重连'])
+
+    t.audio(40_000) // the old stream had been working: retry at once
+    expect(t.stt.opened).toHaveLength(2)
+    t.stt.opened[1].onResult({ text: 'second', isFinal: true, startMs: 20, endMs: 80 }) // a new stream counts from 0
+    expect(t.finals().map((s) => [s.text, s.startMs, s.endMs])).toEqual([
+      ['first', 1_000, 1_100],
+      ['second', 40_020, 40_080],
+    ])
+  })
+
+  it('keeps the unfinished sentence of a dropped stream and ignores its stale partials', () => {
+    const t = clocked()
+    t.audio(0)
+    t.stt.opened[0].onResult({ text: 'Is the capital', isFinal: false, startMs: 0, endMs: 900 })
+    t.stt.opened[0].onClose!({ detail: 'x', fatal: false })
+    expect(t.finals().map((s) => s.text)).toEqual(['Is the capital'])
+    t.stt.opened[0].onResult({ text: 'Is the capital paid', isFinal: false, startMs: 0, endMs: 1_200 })
+    expect(t.messages.filter((m) => m.type === 'transcript').at(-1)).toMatchObject({ segment: { text: 'Is the capital', isFinal: true } })
+  })
+
+  it('backs off while new streams keep failing, and stops for good on a fatal error', () => {
+    const t = clocked()
+    t.audio(0)
+    t.stt.opened[0].onClose!({ detail: 'x', fatal: false }) // failed at once
+    t.audio(100)
+    expect(t.stt.opened).toHaveLength(1) // retry after 1 s
+    t.at(1_000)
+    t.audio(1_000)
+    expect(t.stt.opened).toHaveLength(2)
+    t.stt.opened[1].onClose!({ detail: 'x', fatal: false }) // failed again: 2 s
+    t.at(2_999)
+    t.audio(2_999)
+    expect(t.stt.opened).toHaveLength(2)
+    t.at(3_000)
+    t.audio(3_000)
+    expect(t.stt.opened).toHaveLength(3)
+
+    t.stt.opened[2].onClose!({ detail: 'Soniox 断开了连接（错误 401）', fatal: true })
+    t.at(600_000)
+    t.audio(600_000)
+    expect(t.stt.opened).toHaveLength(3)
+    expect(t.errors().at(-1)).toMatch(/^语音识别已停止 \(remote\): .*密钥/)
+  })
+})
+
 describe('demo script', () => {
   it('drives the full pipeline: transcript, translation and copilot suggestions', async () => {
     const { session, messages } = setup()

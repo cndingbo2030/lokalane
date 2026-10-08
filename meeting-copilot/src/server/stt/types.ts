@@ -20,6 +20,18 @@ export interface SttStreamOptions {
   diarize: boolean
   onResult: (result: SttResult) => void
   onError: (error: Error) => void
+  /**
+   * The provider ended the stream on its own (network drop, server error, duration
+   * limit), so the caller can open a new one. Not called after `close()`.
+   */
+  onClose?: (info: SttCloseInfo) => void
+}
+
+export interface SttCloseInfo {
+  /** Shown to the user. */
+  detail: string
+  /** Retrying cannot help: a bad key, no credit left, a rejected request. */
+  fatal: boolean
 }
 
 export interface SttStream {

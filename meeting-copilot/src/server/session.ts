@@ -25,7 +25,7 @@ import { playDemo } from './demo.ts'
 import { sanitizeDocuments } from './documents.ts'
 import type { LlmClient } from './llm/types.ts'
 import { SessionMetrics } from './metrics.ts'
-import type { SttProvider, SttResult, SttStream } from './stt/types.ts'
+import type { SttCloseInfo, SttProvider, SttResult, SttStream } from './stt/types.ts'
 import { isMe, sanitizeSpeakerId, sanitizeSpeakerNames, TranscriptStore, type Speakers } from './transcript.ts'
 import { TriggerDetector } from './triggers.ts'
 
@@ -59,6 +59,27 @@ export interface SessionDeps {
  */
 /** Roughly 500+ tokens: below the model's minimum cacheable prefix there is nothing to warm. */
 const PREWARM_MIN_CHARS = 2_000
+/** A stream that lived this long, or recognized anything, was healthy: losing it is a one-off. */
+const HEALTHY_STREAM_MS = 30_000
+const MAX_RETRY_DELAY_MS = 30_000
+
+/** One provider stream. Its timestamps start at 0, so each stream has its own clock. */
+class LiveStream {
+  readonly clock = new AudioClock()
+  stream!: SttStream
+  results = 0
+  constructor(readonly openedAt: number) {}
+}
+
+/** Reconnect pacing for one audio source after its stream drops. */
+interface Reconnect {
+  failures: number
+  retryAt: number
+  /** Retrying cannot help (bad key, no credit): stay down until the meeting restarts. */
+  fatal: boolean
+}
+
+const noFailures = (): Reconnect => ({ failures: 0, retryAt: 0, fatal: false })
 
 export class MeetingSession {
   readonly id = randomUUID()
@@ -68,8 +89,10 @@ export class MeetingSession {
   private documents: DocumentRef[] = []
   private meetingInfo: MeetingInfo | undefined
   private speakers: Speakers = { names: {} }
-  private readonly streams = new Map<AudioSource, SttStream>()
-  private readonly clocks: Record<AudioSource, AudioClock> = { me: new AudioClock(), remote: new AudioClock() }
+  private readonly streams = new Map<AudioSource, LiveStream>()
+  private readonly reconnect: Record<AudioSource, Reconnect> = { me: noFailures(), remote: noFailures() }
+  /** Latest partial per source (meeting time), kept if its stream dies mid-sentence. */
+  private readonly partials = new Map<AudioSource, SttResult>()
   private readonly counters: Record<AudioSource, number> = { me: 0, remote: 0 }
   private readonly finalizedAt = new Map<string, number>()
   private readonly transcript = new TranscriptStore()
@@ -139,10 +162,14 @@ export class MeetingSession {
   /** `captureMs`: capture time, not arrival time, so audio buffered during a disconnect is placed exactly. */
   private ingest(source: AudioSource, pcm: Uint8Array, captureMs: number): void {
     if (!this.config || this.closed) return
+    const live = this.streamFor(source)
+    // Waiting to retry a failed connection, or stopped for good (bad key): nothing to send to.
+    if (!live) return
     const durationMs = (pcm.byteLength / 2 / AUDIO_SAMPLE_RATE) * 1000
-    this.clocks[source].record(captureMs, durationMs)
+    // Recorded before writing: a synchronous provider (the mock) reports results from inside write().
+    live.clock.record(captureMs, durationMs)
     this.metrics.addAudio(source, durationMs)
-    this.streamFor(source).write(pcm)
+    live.stream.write(pcm)
   }
 
   async close(): Promise<void> {
@@ -298,31 +325,72 @@ export class MeetingSession {
     this.deps.send({ type: 'metrics', metrics: this.metrics.snapshot() })
   }
 
-  private streamFor(source: AudioSource): SttStream {
-    let stream = this.streams.get(source)
-    if (!stream) {
-      stream = this.deps.stt.open({
-        source,
-        languages: this.config?.spokenLanguages ?? ['auto'],
-        // Diarize only the meeting audio; the microphone is always the user.
-        diarize: source === 'remote',
-        onResult: (result) => this.onSttResult(source, this.toMeetingTime(source, result)),
-        onError: (error) => this.reportError(`语音识别出错 (${source})`, error),
-      })
-      this.streams.set(source, stream)
-    }
-    return stream
+  /** The source's live stream, opened on demand; null while waiting to retry or after a fatal error. */
+  private streamFor(source: AudioSource): LiveStream | null {
+    const current = this.streams.get(source)
+    if (current) return current
+    const retry = this.reconnect[source]
+    if (retry.fatal || this.now() < retry.retryAt) return null
+    const live = new LiveStream(this.now())
+    live.stream = this.deps.stt.open({
+      source,
+      languages: this.config?.spokenLanguages ?? ['auto'],
+      // Diarize only the meeting audio; the microphone is always the user.
+      diarize: source === 'remote',
+      onResult: (result) => this.onStreamResult(source, live, result),
+      onError: (error) => this.reportError(`语音识别出错 (${source})`, error),
+      onClose: (info) => this.onStreamClosed(source, live, info),
+    })
+    this.streams.set(source, live)
+    return live
   }
 
-  private toMeetingTime(source: AudioSource, result: SttResult): SttResult {
-    const clock = this.clocks[source]
-    return { ...result, startMs: clock.toWall(result.startMs), endMs: clock.toWall(result.endMs) }
+  private onStreamResult(source: AudioSource, live: LiveStream, result: SttResult): void {
+    const current = this.streams.get(source) === live
+    // A stream being replaced or closed may still flush its last finals; its partials are stale.
+    if (!current && !result.isFinal) return
+    live.results++
+    const inMeetingTime = { ...result, startMs: live.clock.toWall(result.startMs), endMs: live.clock.toWall(result.endMs) }
+    if (current) {
+      if (inMeetingTime.isFinal) this.partials.delete(source)
+      else this.partials.set(source, inMeetingTime)
+    }
+    this.onSttResult(source, inMeetingTime)
+  }
+
+  /**
+   * The provider dropped a stream. The next audio frame opens a new one (with a new
+   * clock): at once if the old one had been working, otherwise after an exponential
+   * backoff, and never again after a fatal error, so a bad key is not retried in a loop.
+   */
+  private onStreamClosed(source: AudioSource, live: LiveStream, info: SttCloseInfo): void {
+    if (this.closed || this.streams.get(source) !== live) return
+    this.streams.delete(source)
+    // The audio behind an unfinished sentence went with the stream: keep what was recognized.
+    const partial = this.partials.get(source)
+    if (partial) {
+      this.partials.delete(source)
+      this.onSttResult(source, { ...partial, isFinal: true })
+    }
+    const retry = this.reconnect[source]
+    if (info.fatal) {
+      retry.fatal = true
+      this.reportError(`语音识别已停止 (${source})`, `${info.detail}。请检查密钥或账户余额，改好后重启服务，再开一场新会议`)
+      return
+    }
+    const healthy = live.results > 0 || this.now() - live.openedAt >= HEALTHY_STREAM_MS
+    retry.failures = healthy ? 0 : retry.failures + 1
+    retry.retryAt = retry.failures === 0 ? 0 : this.now() + Math.min(MAX_RETRY_DELAY_MS, 1_000 * 2 ** (retry.failures - 1))
+    this.reportError(`语音识别连接中断 (${source})`, `${info.detail}，正在自动重连`)
   }
 
   private async stopAudio(): Promise<void> {
     const streams = [...this.streams.values()]
     this.streams.clear()
-    await Promise.allSettled(streams.map((s) => s.close()))
+    this.partials.clear()
+    this.reconnect.me = noFailures()
+    this.reconnect.remote = noFailures()
+    await Promise.allSettled(streams.map((s) => s.stream.close()))
   }
 
   /** Feed a normalized STT result (timestamps already in meeting time). Used by the demo and tests. */
