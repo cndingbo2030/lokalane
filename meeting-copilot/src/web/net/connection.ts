@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage } from '../../shared/protocol.ts'
+import { accessToken } from './token.ts'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
@@ -34,6 +35,8 @@ export class CopilotConnection {
   private droppedFrames = 0
   private retryTimer: number | undefined
   private downSince: number | null = null
+  /** The server refused to start the meeting (busy, rate limited): retrying would not help. */
+  private refused = false
 
   constructor(
     private readonly url: string,
@@ -75,6 +78,7 @@ export class CopilotConnection {
       } catch {
         return
       }
+      if (message.type === 'error' && !message.recoverable && !this.sessionId) this.refused = true
       if (message.type === 'ready') {
         this.downSince = null
         this.sessionId = message.sessionId
@@ -87,7 +91,7 @@ export class CopilotConnection {
       window.clearInterval(this.pingTimer)
       window.clearInterval(this.replayTimer)
       this.replayTimer = undefined
-      if (this.closedByUser) return this.handlers.onStatus('closed')
+      if (this.closedByUser || this.refused) return this.handlers.onStatus('closed')
       this.downSince ??= Date.now()
       const exhausted = this.options.keepTryingMs ? Date.now() - this.downSince > this.options.keepTryingMs : this.retries >= MAX_RETRIES
       if (exhausted) {
@@ -165,6 +169,6 @@ export class CopilotConnection {
 
 export function serverUrl(): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const token = new URLSearchParams(location.search).get('token')
+  const token = accessToken()
   return `${protocol}//${location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`
 }

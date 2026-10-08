@@ -21,6 +21,10 @@ AI 会议助手：粘贴 **Google Meet / Microsoft Teams / Zoom / 腾讯会议�
 - 🤖 **会议机器人**：派机器人自动加入 Zoom / Google Meet / Teams，本机无需共享任何东西，手机上也能看实时字幕和建议
 - 🙋 **「这是我」**：机器人或线下麦克风听到所有人时，标记哪个说话人是你，你的发言不会触发建议
 - 🔗 **只读实时共享**：生成链接让同事实时查看字幕、翻译和纪要（可选是否共享 AI 建议），随时停止
+- 📈 **会议分析**：发言占比、发言次数、最长连续发言、提问次数、语速，会中实时显示你的发言占比
+- ⚡ **首条建议更快**：会议开始即预热 AI 缓存（简报和参考文件），安静一段时间后的建议依然秒出
+- 📱 **可安装到手机**（PWA）：配合会议机器人和共享链接，用手机看实时字幕和建议
+- 🧹 **隐私控制**：历史记录保留期限、全部导出、一键全部删除
 
 ![演示会议界面](docs/demo.png)
 
@@ -52,6 +56,9 @@ npm run dev               # 同时启动服务端 (8790) 和前端 (5180)
 | `ALLOW_PRIVATE_NETWORK` | 可选；`true` 时日历订阅和 Webhook 可以访问内网地址（自建 n8n、内网日历）。面向公网的服务器请保持关闭 |
 | `ATTENDEE_API_KEY` / `ATTENDEE_BASE_URL` | 可选；开启会议机器人模式（[Attendee](https://attendee.dev) 托管版或自部署） |
 | `PUBLIC_URL` | 机器人模式必填：本服务的公网 https 地址，机器人通过 `wss://…/ws/bot` 回传音频 |
+| `TRUST_PROXY` | 在你控制的反向代理之后设为 `true`，限流按真实客户端地址计算（docker-compose 已设置） |
+| `MAX_SESSIONS` | 同时进行的会议数上限，默认 50 |
+| `DOMAIN` | Docker 部署时的域名，Caddy 自动为其申请 HTTPS 证书 |
 
 没有 STT 密钥时，服务端用能量 VAD 模拟识别（只显示"检测到语音 x 秒"），可用来确认音频采集链路是否正常。
 
@@ -124,12 +131,32 @@ npm run eval:stt -- --languages zh,en # 真实 STT 跑 evals/stt/*.wav（见 eva
 
 ## 部署
 
+### Docker（推荐，自动 HTTPS）
+
 ```bash
-npm run build     # 构建前端到 dist/
+cp .env.example .env    # 填写 DOMAIN、ACCESS_TOKEN 和各项 API 密钥
+docker compose up -d --build
+```
+
+- 先把域名（`DOMAIN`）解析到服务器并开放 80 / 443 端口；Caddy 会自动申请和续期 HTTPS 证书，WebSocket 直接透传。
+- 会议机器人的回传地址自动设为 `https://DOMAIN`，配置好 `ATTENDEE_API_KEY` 即可使用机器人模式。
+- **面向公网时务必设置 `ACCESS_TOKEN`**，并用 `https://DOMAIN/?token=…` 访问；否则任何人都能调用你的 AI 和语音识别额度。
+- 镜像以非 root 用户运行，带健康检查；收到停止信号时会结束进行中的会议（机器人离会）后退出。
+
+### 直接运行
+
+```bash
+npm run build     # 类型检查 + 构建前端（dist/）和服务端（dist-server/）
 npm start         # 生产模式：同一端口提供页面、/health 和 /ws
 ```
 
-浏览器采集麦克风和标签页要求 **HTTPS**（localhost 除外），生产环境请放在 HTTPS 反向代理之后。
+浏览器采集麦克风和标签页要求 **HTTPS**（localhost 除外），请放在 HTTPS 反向代理之后；此时设置 `TRUST_PROXY=true`，限流才能识别真实客户端地址。
+
+### 生产防护（内置）
+
+- 按客户端限流：AI 简报、会后推送、日历抓取、文件上传、新开会议，超限返回 429 和 `Retry-After`。
+- `MAX_SESSIONS`（默认 50）限制同时进行的会议数，保护识别和模型费用。
+- 页面带安全响应头：不发送 Referer（防止地址中的令牌泄露给外部网站）、只允许本站脚本和连接、禁止被嵌入其他网站。
 
 ## 开发
 
@@ -142,7 +169,7 @@ npm run build      # 类型检查 + 前端构建
 | 目录 | 内容 |
 |------|------|
 | `src/shared/` | 前后端共享：线路协议、会议链接解析、PCM 重采样、VAD 与音频时钟、语言工具 |
-| `src/server/` | WebSocket + HTTP 服务、会话编排、STT 适配器、Claude 客户端、提示词、触发器、指标、参考文件、日历、会后推送、会议机器人、只读共享、防 SSRF 请求 |
+| `src/server/` | WebSocket + HTTP 服务、会话编排、STT 适配器、Claude 客户端、提示词、触发器、指标、参考文件、日历、会后推送、会议机器人、只读共享、防 SSRF 请求、限流 |
 | `src/web/` | React 界面、音频采集引擎、连接管理、状态、本地会议历史、日历、会议结果与推送、只读观看页 |
 | `src/desktop/` | Electron 主进程（内置服务、系统声音、提词器窗口、快捷键、加密设置）与 preload |
 | `src/eval/` | 评测：混合错误率、WAV 解码、STT / Copilot 评测脚本 |

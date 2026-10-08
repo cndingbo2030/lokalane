@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'dist-electron', 'release', 'node_modules']),
+  globalIgnores(['dist', 'dist-electron', 'dist-server', 'release', 'node_modules']),
   {
     files: ['src/web/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.recommended, reactHooks.configs.flat.recommended],

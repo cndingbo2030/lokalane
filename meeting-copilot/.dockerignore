@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-server
+dist-electron
+release
+evals/reports
+evals/stt/*.wav
+.env
+.env.*
+!.env.example
+*.log

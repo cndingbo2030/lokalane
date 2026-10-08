@@ -21,6 +21,10 @@ export interface ServerConfig {
    * (SSRF protection); the desktop app turns it on since it runs on the user's machine.
    */
   allowPrivateNetwork: boolean
+  /** Behind a reverse proxy (Caddy, nginx): read the client address from X-Forwarded-For. */
+  trustProxy: boolean
+  /** Concurrent meetings this server accepts (each one streams to STT and calls the LLM). */
+  maxSessions: number
   /** Meeting bots via Attendee; null with a reason when not configured. */
   bot: { apiKey: string; baseUrl: string; audioBaseUrl: string } | null
   botUnavailableReason?: string
@@ -57,6 +61,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       .filter(Boolean),
     production: env.NODE_ENV === 'production',
     allowPrivateNetwork: env.ALLOW_PRIVATE_NETWORK === 'true',
+    trustProxy: env.TRUST_PROXY === 'true',
+    maxSessions: positiveInt(env.MAX_SESSIONS, 50),
     ...botConfig(env),
   }
 }
@@ -79,6 +85,11 @@ function botConfig(env: NodeJS.ProcessEnv): Pick<ServerConfig, 'bot' | 'botUnava
   }
   const audioBaseUrl = `wss://${publicUrl.host}${publicUrl.pathname.replace(/\/+$/, '')}`
   return { bot: { apiKey, baseUrl: env.ATTENDEE_BASE_URL || 'https://app.attendee.dev', audioBaseUrl } }
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  const n = Number(value)
+  return Number.isInteger(n) && n > 0 ? n : fallback
 }
 
 /** Loads `.env` into process.env when present (Node >= 20.12). */

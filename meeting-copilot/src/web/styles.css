@@ -1420,3 +1420,144 @@ a:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* ---- Phase 4: conversation analytics ---- */
+
+/* Speaker colors validated for CVD separation and contrast (light: #ffffff surface, dark: #151826). */
+.analytics {
+  --spk-me: #0a9a8c;
+  --spk-1: #2a78d6;
+  --spk-2: #eb6834;
+  --spk-3: #4a3aa7;
+  --spk-4: #e87ba4;
+  --spk-5: #eda100;
+  --spk-other: #a3a29d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .analytics {
+    --spk-me: #18a08f;
+    --spk-1: #3987e5;
+    --spk-2: #d95926;
+    --spk-3: #9085e9;
+    --spk-4: #d55181;
+    --spk-5: #c98500;
+    --spk-other: #6b6a66;
+  }
+}
+
+.spk-me { --spk: var(--spk-me); }
+.spk-1 { --spk: var(--spk-1); }
+.spk-2 { --spk: var(--spk-2); }
+.spk-3 { --spk: var(--spk-3); }
+.spk-4 { --spk: var(--spk-4); }
+.spk-5 { --spk: var(--spk-5); }
+.spk-other { --spk: var(--spk-other); }
+
+.talk-bar {
+  display: flex;
+  gap: 2px; /* surface gap between segments */
+  height: 14px;
+}
+
+.talk-share {
+  background: var(--spk);
+  min-width: 3px;
+}
+
+.talk-share:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.talk-share:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.talk-share:only-child {
+  border-radius: 4px;
+}
+
+.talk-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.talk-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--spk);
+  flex: none;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.speaker-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.speaker-table th,
+.speaker-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.speaker-table thead th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.speaker-table tbody th {
+  font-weight: 600;
+}
+
+.speaker-table tbody th .swatch {
+  margin-right: 8px;
+  vertical-align: -1px;
+}
+
+.insight {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.history-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.history-tools select {
+  width: auto;
+  padding: 5px 9px;
+  font-size: 13px;
+}
+
+.link-button.accent {
+  color: var(--accent);
+}

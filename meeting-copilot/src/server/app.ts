@@ -15,6 +15,7 @@ import { AnthropicDocumentStore, DocumentError, MAX_DOCUMENT_BYTES, MemoryDocume
 import { AnthropicLlm } from './llm/anthropic.ts'
 import { MockLlm } from './llm/mock.ts'
 import type { LlmClient } from './llm/types.ts'
+import { clientAddress, RateLimiter } from './rateLimit.ts'
 import { ResumableChannel, SessionRegistry } from './registry.ts'
 import { ShareHub } from './share.ts'
 import { MeetingSession } from './session.ts'
@@ -36,7 +37,11 @@ export interface CopilotServerOptions {
   log?: Pick<Console, 'log' | 'warn' | 'error'>
   /** How long a disconnected meeting is kept for resumption. */
   resumeGraceMs?: number
+  /** Override the per-client limits (tests). */
+  limits?: Partial<Record<LimitName, RateLimiter>>
 }
+
+type LimitName = 'llm' | 'outbound' | 'uploads' | 'meetings'
 
 export interface CopilotServer {
   readonly server: Server
@@ -55,6 +60,7 @@ const MIME: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
 }
@@ -72,6 +78,22 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
   const staticDir = options.staticDir ? resolve(options.staticDir) : undefined
   const sessions = new SessionRegistry(options.resumeGraceMs)
   const shares = new ShareHub()
+  // Per client: AI calls (briefs), outbound requests (webhooks, calendars), uploads, new meetings.
+  const limits: Record<LimitName, RateLimiter> = {
+    llm: new RateLimiter({ capacity: 5, perMinute: 10 }),
+    outbound: new RateLimiter({ capacity: 20, perMinute: 30 }),
+    uploads: new RateLimiter({ capacity: 10, perMinute: 20 }),
+    meetings: new RateLimiter({ capacity: 5, perMinute: 10 }),
+    ...options.limits,
+  }
+  /** False (and a 429 sent) when the client is over the limit. */
+  const allow = (limit: LimitName, req: IncomingMessage, res: ServerResponse): boolean => {
+    const client = clientAddress(req, config.trustProxy)
+    if (limits[limit].take(client)) return true
+    res.setHeader('retry-after', String(limits[limit].retryAfterSeconds(client)))
+    sendJson(res, { error: '请求过于频繁，请稍后再试' }, 429)
+    return false
+  }
   /** Each session's resumable channel to its owner (follows the owner across reconnects). */
   const owners = new Map<string, (message: ServerMessage) => void>()
   const calendar = options.calendar ?? new CalendarService({ allowPrivateNetwork: config.allowPrivateNetwork })
@@ -100,23 +122,31 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
         bot: bots ? { enabled: true } : { enabled: false, reason: config.botUnavailableReason },
       })
     }
+    if (url.pathname === '/api/access' && req.method === 'GET') {
+      // Lets the page tell "wrong or missing ACCESS_TOKEN" apart from a network problem.
+      return isAllowed(req, url) ? sendJson(res, { ok: true }) : sendJson(res, { error: '访问令牌无效或缺失' }, 403)
+    }
     if (url.pathname === '/api/calendar/events' && req.method === 'POST') {
+      if (!allow('outbound', req, res)) return
       void handleJson(req, res, url, (body) => calendar.events(body))
       return
     }
     if (url.pathname === '/api/brief' && req.method === 'POST') {
+      if (!allow('llm', req, res)) return
       void handleJson(req, res, url, (body) => generateBrief(llm, config.models.summary, body))
       return
     }
     if (url.pathname === '/api/deliver' && req.method === 'POST') {
+      if (!allow('outbound', req, res)) return
       void handleJson(req, res, url, (body) => delivery.deliver(body))
       return
     }
     if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/')) {
+      if (req.method === 'POST' && !allow('uploads', req, res)) return
       void handleDocuments(req, res, url)
       return
     }
-    if (staticDir) return serveStatic(staticDir, url.pathname, res)
+    if (staticDir) return serveStatic(staticDir, url.pathname, res, req.headers.host)
     res.writeHead(404).end('Not found (run `npm run dev:web` for the UI in development)')
   })
 
@@ -158,7 +188,7 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
   })
 
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const send = (message: ServerMessage) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message))
     }
@@ -173,6 +203,13 @@ export function createCopilotServer(options: CopilotServerOptions): CopilotServe
           session.announceResumed()
           return
         }
+      }
+      // New meetings cost STT and LLM time: cap them per client and per server.
+      const client = clientAddress(req, config.trustProxy)
+      if (sessions.size >= config.maxSessions || !limits.meetings.take(client)) {
+        send({ type: 'error', message: sessions.size >= config.maxSessions ? '服务器繁忙，请稍后再开始会议' : '开始会议过于频繁，请稍后再试', recoverable: false })
+        ws.close(1013, 'busy')
+        return
       }
       const channel = new ResumableChannel(send)
       const created: MeetingSession = new MeetingSession({
@@ -353,7 +390,7 @@ function toUint8(data: RawData): Uint8Array {
 }
 
 function sendJson(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }).end(JSON.stringify(body))
 }
 
 /** Exported for tests: resolves a URL path inside `root`, or null if it escapes it. */
@@ -369,13 +406,44 @@ export function resolveStaticPath(root: string, pathname: string): string | null
   return requested === root || requested.startsWith(root + sep) ? requested : null
 }
 
-function serveStatic(root: string, pathname: string, res: ServerResponse): void {
+function serveStatic(root: string, pathname: string, res: ServerResponse, host?: string): void {
   const requested = resolveStaticPath(root, pathname)
   const file = requested && existsSync(requested) && statSync(requested).isFile() ? requested : join(root, 'index.html')
   if (!existsSync(file)) {
     res.writeHead(404).end('Build the web app first: npm run build')
     return
   }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
+  res.writeHead(200, {
+    'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+    // Vite fingerprints everything under /assets; the page itself must always be revalidated.
+    'cache-control': file.includes(`${sep}assets${sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache',
+    ...securityHeaders(host),
+  })
   createReadStream(file).pipe(res)
+}
+
+/**
+ * The page URL can carry the access token or a share token: never send it as a
+ * Referer (meeting links, documentation links). Only this origin may run code
+ * or open sockets; the app may not be framed (clickjacking).
+ */
+export function securityHeaders(host?: string): Record<string, string> {
+  const sockets = host && /^[\w.-]+(:\d+)?$/.test(host) ? ` ws://${host} wss://${host}` : ''
+  return {
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
+      `connect-src 'self'${sockets}`,
+      "worker-src 'self' blob:",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ].join('; '),
+  }
 }

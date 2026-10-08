@@ -36,4 +36,5 @@ export const meetingHistory = {
   save: (record: MeetingRecord) => run('readwrite', (s) => s.put(record)).then(() => undefined),
   list: () => run<MeetingRecord[]>('readonly', (s) => s.getAll()),
   remove: (id: string) => run('readwrite', (s) => s.delete(id)).then(() => undefined),
+  clear: () => run('readwrite', (s) => s.clear()).then(() => undefined),
 }

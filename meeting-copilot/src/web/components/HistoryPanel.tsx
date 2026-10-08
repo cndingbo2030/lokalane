@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { formatDate, formatDuration, searchMeetings, type MeetingRecord } from '../history/model.ts'
+import { formatDate, formatDuration, RETENTION_DAYS, searchMeetings, type MeetingRecord, type RetentionDays } from '../history/model.ts'
 import { downloadFile } from '../outcomes/export.ts'
 import type { Integration } from '../outcomes/integrations.ts'
 import { transcriptToMarkdown } from '../state/reducer.ts'
+import { AnalyticsPanel } from './AnalyticsPanel.tsx'
 import { Markdown } from './Markdown.tsx'
 import { OutcomesPanel, type OutcomesContext } from './OutcomesPanel.tsx'
 import { TranscriptPane } from './TranscriptPane.tsx'
@@ -10,9 +11,15 @@ import { TranscriptPane } from './TranscriptPane.tsx'
 interface ListProps {
   records: MeetingRecord[]
   onOpen: (record: MeetingRecord) => void
+  retention: RetentionDays
+  onRetentionChange: (days: RetentionDays) => void
+  onExportAll: () => void
+  onDeleteAll: () => void
 }
 
-export function HistoryPanel({ records, onOpen }: ListProps) {
+const RETENTION_LABELS: Record<RetentionDays, string> = { 0: '永久保留', 365: '保留 1 年', 90: '保留 90 天', 30: '保留 30 天' }
+
+export function HistoryPanel({ records, onOpen, retention, onRetentionChange, onExportAll, onDeleteAll }: ListProps) {
   const [query, setQuery] = useState('')
   const hits = useMemo(() => searchMeetings(records, query), [records, query])
 
@@ -22,6 +29,27 @@ export function HistoryPanel({ records, onOpen }: ListProps) {
       <div className="history-header">
         <h2>历史会议 <span className="muted small">（仅保存在本机浏览器）</span></h2>
         <input type="search" value={query} placeholder="搜索标题、逐字稿、翻译或纪要…" aria-label="搜索历史会议" onChange={(e) => setQuery(e.target.value)} />
+      </div>
+      <div className="history-tools">
+        <select value={retention} aria-label="历史记录保留期限" onChange={(e) => onRetentionChange(Number(e.target.value) as RetentionDays)}>
+          {RETENTION_DAYS.map((days) => (
+            <option key={days} value={days}>
+              {RETENTION_LABELS[days]}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="link-button accent" onClick={onExportAll}>
+          导出全部（JSON）
+        </button>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            if (window.confirm(`删除本机保存的全部 ${records.length} 场会议记录？此操作无法撤销。`)) onDeleteAll()
+          }}
+        >
+          全部删除
+        </button>
       </div>
       {hits.length === 0 && <p className="muted small">没有匹配的会议</p>}
       <ul className="history-list">
@@ -143,6 +171,7 @@ export function MeetingViewer({ record, onClose, onDelete, onUpdate, integration
           onIntegrationsChange={onIntegrationsChange}
         />
       )}
+      <AnalyticsPanel segments={record.segments} speakerNames={record.speakerNames} meSpeaker={record.meSpeaker} />
     </main>
   )
 }

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CalendarEvent } from '../shared/calendar.ts'
 import { parseMeetingLink } from '../shared/meetingLink.ts'
+import { conversationStats } from '../shared/analytics.ts'
 import { encodeAudioFrame, type AudioSource, type FeedbackRating, type MeetingPlatform, type SessionConfig } from '../shared/protocol.ts'
 import { AudioEngine, CaptureError } from './audio/engine.ts'
 import { botHint, botLabel, fetchServerInfo, isBotFinished, type ServerInfo } from './bot.ts'
 import { mergeBriefIntoForm, requestBrief, stripGenerated } from './brief.ts'
 import { formatEventTime } from './calendar/feeds.ts'
 import { useCalendar } from './calendar/useCalendar.ts'
+import { AnalyticsPanel } from './components/AnalyticsPanel.tsx'
 import { CopilotPane } from './components/CopilotPane.tsx'
 import { DesktopSettingsPanel } from './components/DesktopSettingsPanel.tsx'
 import { HistoryPanel, MeetingViewer } from './components/HistoryPanel.tsx'
@@ -21,7 +23,18 @@ import { TranscriptPane } from './components/TranscriptPane.tsx'
 import { UpcomingPanel } from './components/UpcomingPanel.tsx'
 import { desktop } from './desktop.ts'
 import { meetingHistory } from './history/db.ts'
-import { buildRecord, PLATFORM_TITLES, relatedMeetings, titleFromSummary, type MeetingRecord } from './history/model.ts'
+import {
+  buildRecord,
+  expiredRecords,
+  loadRetention,
+  PLATFORM_TITLES,
+  relatedMeetings,
+  saveRetention,
+  titleFromSummary,
+  type MeetingRecord,
+  type RetentionDays,
+} from './history/model.ts'
+import { checkAccess } from './net/api.ts'
 import { CopilotConnection, serverUrl, type ConnectionStatus } from './net/connection.ts'
 import { downloadFile } from './outcomes/export.ts'
 import { useIntegrations } from './outcomes/useIntegrations.ts'
@@ -85,6 +98,8 @@ export function App() {
   const { integrations, setIntegrations } = useIntegrations()
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  const [retention, setRetention] = useState<RetentionDays>(loadRetention)
+  const [accessDenied, setAccessDenied] = useState(false)
 
   const connectionRef = useRef<CopilotConnection | null>(null)
   const engineRef = useRef<AudioEngine | null>(null)
@@ -145,6 +160,10 @@ export function App() {
     if (calendar.reminder?.id === event.id) calendar.dismissReminder()
   }
   const overlayState = useMemo(() => deriveOverlayState(state), [state])
+  const myShare = useMemo(
+    () => (state.phase === 'live' ? conversationStats(state.segments, state.speakerNames, state.meSpeaker).myShare : null),
+    [state.phase, state.segments, state.speakerNames, state.meSpeaker],
+  )
   const pip = usePictureInPicture()
   const ask = () => connectionRef.current?.send({ type: 'ask' })
 
@@ -172,9 +191,15 @@ export function App() {
   useEffect(() => {
     meetingHistory
       .list()
-      .then(setHistory)
+      .then((records) => {
+        // Apply the retention period on every start: expired meetings are deleted for good.
+        const expired = new Set(expiredRecords(records, Date.now(), loadRetention()).map((r) => r.id))
+        for (const id of expired) meetingHistory.remove(id).catch(() => {})
+        setHistory(records.filter((r) => !expired.has(r.id)))
+      })
       .catch(() => {})
     void fetchServerInfo().then(setServerInfo)
+    void checkAccess().then((ok) => setAccessDenied(!ok))
   }, [])
 
   useEffect(() => {
@@ -252,6 +277,8 @@ export function App() {
           opened = true
           onOpen?.()
         }
+        // Refused before it started (server busy, rate limited): back to setup, the error stays on screen.
+        if (status === 'closed' && !opened && connectionRef.current === conn) abandonStart()
       },
     }, options)
     connectionRef.current = conn
@@ -264,6 +291,15 @@ export function App() {
     dispatch({ type: 'phase', phase: 'connecting' })
     setRecordingUrl(null)
     setMeeting({ platform: demo ? 'unknown' : (parsed?.platform ?? 'unknown'), startedAt: timestamp(), demo, bot, event: preparedEvent ?? undefined })
+  }
+
+  const abandonStart = () => {
+    const engine = engineRef.current
+    engineRef.current = null
+    connectionRef.current = null
+    void engine?.stop()
+    setMeeting(null)
+    dispatch({ type: 'phase', phase: 'setup' })
   }
 
   const start = async () => {
@@ -289,6 +325,11 @@ export function App() {
         },
         { record: form.record, vad: form.vad },
       )
+      // The server may have refused the meeting while the capture picker was open.
+      if (connectionRef.current !== conn) {
+        await engine.stop()
+        return
+      }
       engineRef.current = engine
       setMeeting((m) => (m ? { ...m, startedAt: timestamp() } : m))
     } catch (error) {
@@ -370,6 +411,24 @@ export function App() {
     meetingHistory.remove(record.id).catch(() => {})
   }
 
+  const changeRetention = (days: RetentionDays) => {
+    const expired = expiredRecords(history, Date.now(), days)
+    if (expired.length > 0 && !window.confirm(`将删除 ${expired.length} 场超过保留期限的会议记录，确定吗？`)) return
+    saveRetention(days)
+    setRetention(days)
+    for (const record of expired) meetingHistory.remove(record.id).catch(() => {})
+    setHistory((h) => h.filter((r) => !expired.includes(r)))
+  }
+
+  const exportHistory = () => {
+    downloadFile(`meeting-copilot-history-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(history, null, 2), 'application/json')
+  }
+
+  const deleteAllHistory = () => {
+    setHistory([])
+    meetingHistory.clear().catch(() => {})
+  }
+
   const updateRecord = (record: MeetingRecord) => {
     setViewing(record)
     setHistory((h) => h.map((r) => (r.id === record.id ? record : r)))
@@ -439,6 +498,12 @@ export function App() {
         </div>
       )}
 
+      {!inMeeting && accessDenied && (
+        <div className="notice error" role="alert">
+          这台服务器需要访问令牌：请使用管理员提供的完整链接（带 ?token=…）打开。
+        </div>
+      )}
+
       {inMeeting && meeting?.bot && state.bot && botBanner(botHint(state.bot, form.botName))}
 
       {!inMeeting && viewing && (
@@ -491,7 +556,7 @@ export function App() {
             form={mode === form.mode ? form : { ...form, mode }}
             onChange={setForm}
             parsed={parsed}
-            busy={false}
+            busy={accessDenied}
             onStart={() => void start()}
             onDemo={startDemo}
             desktop={Boolean(desktop)}
@@ -503,7 +568,14 @@ export function App() {
           />
           <IntegrationsPanel integrations={integrations} onChange={setIntegrations} language={form.targetLanguage} />
           <DesktopSettingsPanel />
-          <HistoryPanel records={history} onOpen={setViewing} />
+          <HistoryPanel
+            records={history}
+            onOpen={setViewing}
+            retention={retention}
+            onRetentionChange={changeRetention}
+            onExportAll={exportHistory}
+            onDeleteAll={deleteAllHistory}
+          />
         </>
       )}
 
@@ -517,7 +589,7 @@ export function App() {
                   <Meter label={form.mode === 'mic-only' ? '现场' : '会议'} level={levels.remote} />
                 </div>
               )}
-              <MetricsBar metrics={state.metrics} elapsedSeconds={elapsed} />
+              <MetricsBar metrics={state.metrics} elapsedSeconds={elapsed} myShare={myShare} />
             </div>
             <div className="actions">
               {state.phase !== 'ended' ? (
@@ -615,6 +687,8 @@ export function App() {
             onIntegrationsChange={setIntegrations}
             autoSend
           />
+
+          {state.phase === 'ended' && <AnalyticsPanel segments={state.segments} speakerNames={state.speakerNames} meSpeaker={state.meSpeaker} />}
         </main>
       )}
     </div>

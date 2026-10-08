@@ -47,7 +47,7 @@ describe('AnthropicLlm', () => {
       }),
     )
     expect(text).toBe('Hi')
-    expect(usage).toEqual({ inputTokens: 10, outputTokens: 2, cacheReadTokens: 500, cacheWriteTokens: 0 })
+    expect(usage).toEqual({ inputTokens: 10, outputTokens: 2, cacheReadTokens: 500, cacheWriteTokens: 0, cacheWrite1hTokens: 0 })
     const params = calls[0] as Record<string, unknown> & { system: unknown[]; messages: Array<{ content: Array<Record<string, unknown>> }> }
     expect(params).toMatchObject({ fallbacks: 'default', betas: ['server-side-fallback-2026-07-01'], output_config: { effort: 'low' } })
     expect(params.system).toEqual([
@@ -58,6 +58,47 @@ describe('AnthropicLlm', () => {
     expect(content.map((b) => b.type)).toEqual(['document', 'document', 'text'])
     expect(content[0]).not.toHaveProperty('cache_control')
     expect(content[1]).toMatchObject({ source: { type: 'file', file_id: 'file_2' }, title: 'b.txt', cache_control: { type: 'ephemeral' } })
+  })
+
+  it('applies a 1-hour TTL to the stable prefix and caches the instructions when there is no brief', async () => {
+    const { client, calls } = fakeClient()
+    const llm = new AnthropicLlm(client)
+    const docs = [{ id: 'file_1', name: 'a.pdf', kind: 'pdf' as const, sizeBytes: 1 }]
+    await collectText(llm.streamText({ model: 'm', system: 'rules', documents: docs, cacheTtl: '1h', prompt: 'q', maxTokens: 10, effort: 'low' }))
+    const params = calls[0] as { system: unknown[]; messages: Array<{ content: Array<Record<string, unknown>> }> }
+    expect(params.system).toEqual([{ type: 'text', text: 'rules', cache_control: { type: 'ephemeral', ttl: '1h' } }])
+    expect(params.messages[0].content[0]).toMatchObject({ cache_control: { type: 'ephemeral', ttl: '1h' } })
+    expect(params.messages[0].content[1]).toEqual({ type: 'text', text: 'q' })
+  })
+
+  it('pre-warms with max_tokens 0 and exactly the prefix of the real request', async () => {
+    const created: Array<Record<string, unknown>> = []
+    const streamed: Array<Record<string, unknown>> = []
+    const client = {
+      beta: {
+        messages: {
+          create: async (params: Record<string, unknown>) => {
+            created.push(params)
+            return { content: [], stop_reason: 'max_tokens', usage: { input_tokens: 3, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 2_000, cache_creation: { ephemeral_1h_input_tokens: 2_000, ephemeral_5m_input_tokens: 0 } } }
+          },
+          stream: (params: Record<string, unknown>) => {
+            streamed.push(params)
+            return { async *[Symbol.asyncIterator]() {}, finalMessage: async () => ({ stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }) }
+          },
+        },
+      },
+    } as unknown as Anthropic
+    const llm = new AnthropicLlm(client)
+    const base = { model: 'claude-opus-5-5', system: 'rules', cachedContext: 'brief', cacheTtl: '1h' as const, effort: 'low' as const }
+    let usage: LlmUsage | undefined
+    await llm.prewarm({ ...base, prompt: 'warmup', maxTokens: 0, onUsage: (u) => (usage = u) })
+    await collectText(llm.streamText({ ...base, prompt: 'real question', maxTokens: 2048 }))
+    expect(created[0]).toMatchObject({ max_tokens: 0, output_config: { effort: 'low' } })
+    expect(created[0]).not.toHaveProperty('stream')
+    // Everything up to the breakpoint is identical, so the real request reads what the warm-up wrote.
+    expect(created[0].system).toEqual(streamed[0].system)
+    expect(created[0].output_config).toEqual(streamed[0].output_config)
+    expect(usage).toMatchObject({ cacheWriteTokens: 2_000, cacheWrite1hTokens: 2_000, outputTokens: 0 })
   })
 
   it('throws a typed error on refusal', async () => {

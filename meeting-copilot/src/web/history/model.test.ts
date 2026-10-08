@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { TranscriptSegment } from '../../shared/protocol.ts'
 import { initialState, type AppState } from '../state/reducer.ts'
-import { buildRecord, searchMeetings, titleFromSummary, type MeetingRecord } from './model.ts'
+import { buildRecord, expiredRecords, loadRetention, saveRetention, searchMeetings, titleFromSummary, type MeetingRecord } from './model.ts'
 
 const seg = (id: string, text: string, isFinal = true): TranscriptSegment => ({ id, source: 'remote', text, isFinal, startMs: 0, endMs: 1 })
 
@@ -79,5 +79,28 @@ describe('searchMeetings', () => {
     expect(hit.snippet).toContain('Singapore')
     expect(searchMeetings(records, '报价单')[0].record.id).toBe('new')
     expect(searchMeetings(records, 'nothing-like-this')).toEqual([])
+  })
+})
+
+describe('history retention', () => {
+  const day = 86_400_000
+  const record = (id: string, endedAt: number) => ({ id, endedAt }) as MeetingRecord
+
+  it('expires meetings older than the retention period, and nothing when kept forever', () => {
+    const now = 1_000 * day
+    const records = [record('old', now - 40 * day), record('recent', now - 10 * day)]
+    expect(expiredRecords(records, now, 30).map((r) => r.id)).toEqual(['old'])
+    expect(expiredRecords(records, now, 0)).toEqual([])
+  })
+
+  it('stores only known retention choices', () => {
+    const data = new Map<string, string>()
+    vi.stubGlobal('localStorage', { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) })
+    expect(loadRetention()).toBe(0)
+    saveRetention(90)
+    expect(loadRetention()).toBe(90)
+    data.set('meeting-copilot:history-retention', '7')
+    expect(loadRetention()).toBe(0)
+    vi.unstubAllGlobals()
   })
 })

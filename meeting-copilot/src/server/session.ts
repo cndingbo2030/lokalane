@@ -57,6 +57,9 @@ export interface SessionDeps {
  * from a meeting bot that joined the call. It may arrive with gaps (VAD), so each
  * source has an AudioClock that maps STT timestamps back to meeting time.
  */
+/** Roughly 500+ tokens: below the model's minimum cacheable prefix there is nothing to warm. */
+const PREWARM_MIN_CHARS = 2_000
+
 export class MeetingSession {
   readonly id = randomUUID()
   private readonly shortId = this.id.slice(0, 8)
@@ -260,6 +263,11 @@ export class MeetingSession {
 
     this.deps.send({ type: 'ready', sessionId: this.id, stt: this.deps.stt.name, llm: this.deps.llm.name })
     if (config.bot && !this.bot) this.launchBot(config)
+    // A large stable prefix (documents, a long brief) is slow to process the first time:
+    // do it now rather than when the other side asks the first question.
+    if (this.copilot && (this.documents.length > 0 || (cachedContext?.length ?? 0) > PREWARM_MIN_CHARS)) {
+      this.copilot.prewarm().catch((error: unknown) => this.deps.log?.(`cache prewarm failed: ${errorMessage(error)}`))
+    }
 
     clearInterval(this.metricsTimer)
     const interval = this.deps.metricsIntervalMs ?? 2_000

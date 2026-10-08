@@ -7,11 +7,17 @@ import type { LlmClient, LlmJsonRequest, LlmTextRequest } from './types.ts'
 export class MockLlm implements LlmClient {
   readonly name = 'mock'
   readonly requests: LlmTextRequest[] = []
+  readonly prewarmed: LlmTextRequest[] = []
 
   constructor(
     private readonly respond: (request: LlmTextRequest) => string = defaultResponse,
     private readonly respondJson: (request: LlmJsonRequest) => unknown = defaultJson,
   ) {}
+
+  async prewarm(request: LlmTextRequest): Promise<void> {
+    this.prewarmed.push(request)
+    request.onUsage?.({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: Math.ceil(inputChars(request) / 4) })
+  }
 
   async completeJson<T>(request: LlmJsonRequest): Promise<T> {
     this.requests.push(request)

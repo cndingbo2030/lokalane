@@ -11,8 +11,12 @@ console.log(`meeting-copilot server on http://localhost:${port}`)
 console.log(`  STT: ${copilot.stt.name}${copilot.stt.name === 'mock' ? ' (set SONIOX_API_KEY or DEEPGRAM_API_KEY for real transcription)' : ''}`)
 console.log(`  LLM: ${copilot.llm.name}${copilot.llm.name === 'mock' ? ' (set ANTHROPIC_API_KEY for real translation and suggestions)' : ` (${config.models.copilot})`}`)
 
+// Docker and process managers send SIGTERM: end meetings cleanly (bots leave, sockets close),
+// but never hang a deploy on a stuck connection.
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
+    console.log(`${signal}: shutting down`)
+    setTimeout(() => process.exit(1), 10_000).unref()
     void copilot.close().finally(() => process.exit(0))
   })
 }

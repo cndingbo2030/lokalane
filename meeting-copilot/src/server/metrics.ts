@@ -1,21 +1,23 @@
 import type { AudioSource, LatencyStats, LlmRole, MetricsSnapshot, RoleMetrics } from '../shared/protocol.ts'
 import type { LlmClient, LlmJsonRequest, LlmTextRequest, LlmUsage } from './llm/types.ts'
 
-/** USD per million tokens (list prices; cache writes are 5-minute TTL). Unknown models cost 0. */
-const PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
-  'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
-  'claude-haiku-4-5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+/** USD per million tokens (list prices). Cache writes: 1.25× input for the 5-minute TTL, 2× for 1 hour. Unknown models cost 0. */
+const PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number }> = {
+  'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, cacheWrite1h: 8 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, cacheWrite1h: 4 },
+  'claude-haiku-4-5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, cacheWrite1h: 2 },
 }
 
 export function estimateCostUsd(model: string, usage: LlmUsage): number {
   const price = PRICES[model]
   if (!price) return 0
+  const write1h = Math.min(usage.cacheWrite1hTokens ?? 0, usage.cacheWriteTokens)
   return (
     (usage.inputTokens * price.input +
       usage.outputTokens * price.output +
       usage.cacheReadTokens * price.cacheRead +
-      usage.cacheWriteTokens * price.cacheWrite) /
+      (usage.cacheWriteTokens - write1h) * price.cacheWrite +
+      write1h * price.cacheWrite1h) /
     1_000_000
   )
 }
@@ -134,6 +136,15 @@ export class SessionMetrics {
       name: llm.name,
       streamText: (request) => this.meteredStream(llm, role, request),
       completeJson: (request) => this.meteredJson(llm, role, request),
+      // Costs money but is not a call the user waits for: usage only, no call count or latency.
+      prewarm: (request) =>
+        llm.prewarm({
+          ...request,
+          onUsage: (usage) => {
+            this.addUsage(role, request.model, usage)
+            request.onUsage?.(usage)
+          },
+        }),
     }
   }
 

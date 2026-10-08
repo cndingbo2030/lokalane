@@ -72,6 +72,28 @@ export class Copilot {
     while (this.running || this.pending) await new Promise((r) => setTimeout(r, 5))
   }
 
+  /**
+   * Writes the cache for the instructions, brief and documents now, at the start
+   * of the meeting, so the first suggestion does not wait for that work.
+   */
+  prewarm(): Promise<void> {
+    return this.options.llm.prewarm({ ...this.stablePrefix(), prompt: 'warmup', maxTokens: 0, signal: this.sessionController.signal })
+  }
+
+  /** Identical on every request so the cache is read, not rewritten. Effort is part of the cached prefix. */
+  private stablePrefix() {
+    const { model, target, cachedContext, documents } = this.options
+    return {
+      model,
+      system: copilotSystem(target, Boolean(documents?.length)),
+      cachedContext,
+      documents,
+      effort: 'low' as const,
+      // Suggestions can be many minutes apart; a 5-minute cache would often be cold exactly when it matters.
+      cacheTtl: '1h' as const,
+    }
+  }
+
   private async run(request: PendingRequest): Promise<void> {
     const manual = request.trigger.kind === 'manual'
     const controller = new AbortController()
@@ -80,7 +102,7 @@ export class Copilot {
     this.running = { controller, manual }
 
     const id = `${this.options.idPrefix}-sg${++this.counter}`
-    const { llm, model, target, transcript, cachedContext, documents, events } = this.options
+    const { llm, transcript, events } = this.options
     const speakers = this.options.speakers?.()
     const recent = transcript.recent(this.options.windowMs ?? 4 * 60_000)
     const focusSegment = recent.find((s) => s.id === request.trigger.segmentId)
@@ -101,10 +123,7 @@ export class Copilot {
     let error: string | undefined
     try {
       const stream = llm.streamText({
-        model,
-        system: copilotSystem(target, Boolean(documents?.length)),
-        cachedContext,
-        documents,
+        ...this.stablePrefix(),
         prompt: copilotPrompt(
           request.trigger.kind,
           formatTranscript(recent, speakers),
@@ -113,7 +132,6 @@ export class Copilot {
           replyLanguage ? languageName(replyLanguage) : undefined,
         ),
         maxTokens: 2048,
-        effort: 'low',
         signal: controller.signal,
       })
       for await (const delta of stream) {

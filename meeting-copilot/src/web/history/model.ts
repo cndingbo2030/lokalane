@@ -137,3 +137,33 @@ export function formatDuration(ms: number): string {
   const minutes = Math.max(0, Math.round(ms / 60_000))
   return minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
 }
+
+/** How long finished meetings stay in this browser; 0 keeps them until deleted. */
+export const RETENTION_DAYS = [0, 365, 90, 30] as const
+export type RetentionDays = (typeof RETENTION_DAYS)[number]
+
+const RETENTION_KEY = 'meeting-copilot:history-retention'
+
+export function loadRetention(): RetentionDays {
+  try {
+    const days = Number(localStorage.getItem(RETENTION_KEY))
+    return (RETENTION_DAYS as readonly number[]).includes(days) ? (days as RetentionDays) : 0
+  } catch {
+    return 0
+  }
+}
+
+export function saveRetention(days: RetentionDays): void {
+  try {
+    localStorage.setItem(RETENTION_KEY, String(days))
+  } catch {
+    // storage unavailable
+  }
+}
+
+/** Meetings that ended longer ago than the retention period. */
+export function expiredRecords(records: MeetingRecord[], now: number, days: number): MeetingRecord[] {
+  if (days <= 0) return []
+  const cutoff = now - days * 86_400_000
+  return records.filter((record) => record.endedAt < cutoff)
+}

@@ -39,6 +39,13 @@ export class AnthropicLlm implements LlmClient {
     }
   }
 
+  async prewarm(request: LlmTextRequest): Promise<void> {
+    // Prefill only: writes the cache at the breakpoints, returns at once, bills no output tokens.
+    // Same params as the real call (effort and thinking are part of the cached prefix), but not streamed.
+    const message = await this.client.beta.messages.create(this.params({ ...request, maxTokens: 0 }), { signal: request.signal })
+    request.onUsage?.(usage(message.usage))
+  }
+
   async completeJson<T>(request: LlmJsonRequest): Promise<T> {
     const message = await this.client.beta.messages.create(
       {
@@ -60,12 +67,16 @@ export class AnthropicLlm implements LlmClient {
   }
 
   private params(request: LlmTextRequest) {
-    const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: request.system }]
-    if (request.cachedContext) {
-      system.push({ type: 'text', text: request.cachedContext, cache_control: { type: 'ephemeral' } })
-    }
+    const cache: Anthropic.Beta.BetaCacheControlEphemeral = request.cacheTtl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
+    // The breakpoint goes on the last system block: the brief when there is one, else the instructions.
+    const system: Anthropic.Beta.BetaTextBlockParam[] = request.cachedContext
+      ? [
+          { type: 'text', text: request.system },
+          { type: 'text', text: request.cachedContext, cache_control: cache },
+        ]
+      : [{ type: 'text', text: request.system, cache_control: cache }]
 
-    const content: Anthropic.Beta.BetaContentBlockParam[] = documentBlocks(request.documents ?? [])
+    const content: Anthropic.Beta.BetaContentBlockParam[] = documentBlocks(request.documents ?? [], cache)
     if (request.cachedPrompt) content.push({ type: 'text', text: request.cachedPrompt, cache_control: { type: 'ephemeral' } })
     content.push({ type: 'text', text: request.prompt })
 
@@ -87,14 +98,15 @@ function usage(u: Anthropic.Beta.BetaUsage): LlmUsage {
     outputTokens: u.output_tokens,
     cacheReadTokens: u.cache_read_input_tokens ?? 0,
     cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+    cacheWrite1hTokens: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
   }
 }
 
-function documentBlocks(documents: DocumentRef[]): Anthropic.Beta.BetaRequestDocumentBlock[] {
+function documentBlocks(documents: DocumentRef[], cache: Anthropic.Beta.BetaCacheControlEphemeral): Anthropic.Beta.BetaRequestDocumentBlock[] {
   return documents.map((doc, index) => ({
     type: 'document',
     source: { type: 'file', file_id: doc.id },
     title: doc.name,
-    ...(index === documents.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+    ...(index === documents.length - 1 ? { cache_control: cache } : {}),
   }))
 }

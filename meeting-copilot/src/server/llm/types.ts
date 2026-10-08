@@ -6,7 +6,9 @@ export interface LlmUsage {
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
+  /** All cache writes; `cacheWrite1hTokens` of them at the 1-hour TTL (billed 2× input instead of 1.25×). */
   cacheWriteTokens: number
+  cacheWrite1hTokens?: number
 }
 
 export interface LlmTextRequest {
@@ -28,6 +30,13 @@ export interface LlmTextRequest {
    * the summary and the outcome extraction), cached after `documents`.
    */
   cachedPrompt?: string
+  /**
+   * Lifetime of the cached prefix (instructions + brief, documents). '1h' for
+   * calls that can be many minutes apart, like copilot suggestions: a quiet
+   * stretch must not turn the next suggestion into a slow cold start. The
+   * `cachedPrompt` breakpoint always uses 5 minutes (longer TTLs come first).
+   */
+  cacheTtl?: '5m' | '1h'
   /** The volatile part: recent transcript + the task for this call. */
   prompt: string
   maxTokens: number
@@ -50,6 +59,11 @@ export interface LlmClient {
   streamText(request: LlmTextRequest): AsyncIterable<string>
   /** One structured response, validated against `schema` by the API. */
   completeJson<T>(request: LlmJsonRequest): Promise<T>
+  /**
+   * Writes the request's cacheable prefix without generating anything
+   * (max_tokens 0), so the first real call reads it instead of paying for it.
+   */
+  prewarm(request: LlmTextRequest): Promise<void>
 }
 
 export class LlmOutputError extends Error {}

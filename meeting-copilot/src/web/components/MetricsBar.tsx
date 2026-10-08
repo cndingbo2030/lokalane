@@ -2,8 +2,11 @@ import type { LatencyStats, MetricsSnapshot } from '../../shared/protocol.ts'
 
 const seconds = (stats: LatencyStats) => (stats.p50 === null ? '—' : `${(stats.p50 / 1000).toFixed(1)}s`)
 
-/** Live quality/cost readout: what the user feels (latency) and what it costs. */
-export function MetricsBar({ metrics, elapsedSeconds }: { metrics?: MetricsSnapshot; elapsedSeconds: number }) {
+/**
+ * Live quality/cost readout: what the user feels (latency) and what it costs,
+ * plus how much of the talking the user is doing (when their voice is known).
+ */
+export function MetricsBar({ metrics, elapsedSeconds, myShare }: { metrics?: MetricsSnapshot; elapsedSeconds: number; myShare?: number | null }) {
   if (!metrics) return null
   const sent = metrics.audioSentSeconds.me + metrics.audioSentSeconds.remote
   const tokens = Object.values(metrics.llm).reduce((sum, r) => sum + r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheWriteTokens, 0)
@@ -30,6 +33,12 @@ export function MetricsBar({ metrics, elapsedSeconds }: { metrics?: MetricsSnaps
         <dt>预估费用</dt>
         <dd>${metrics.costUsd.toFixed(2)}</dd>
       </div>
+      {myShare !== undefined && myShare !== null && (
+        <div title="你的发言时间占全部发言的比例（会后见「会议分析」）">
+          <dt>我的发言</dt>
+          <dd>{Math.round(myShare * 100)}%</dd>
+        </div>
+      )}
       {rated > 0 && (
         <div title="对 AI 建议的反馈">
           <dt>建议好评</dt>

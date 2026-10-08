@@ -1,0 +1,5 @@
+# Automatic HTTPS (Let's Encrypt) for DOMAIN; WebSockets (/ws, /ws/bot, /ws/watch) pass through.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy copilot:8790
+}

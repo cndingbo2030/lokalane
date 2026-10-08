@@ -1,14 +1,17 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import type { ClientMessage, ServerMessage, SessionConfig } from '../shared/protocol.ts'
-import { createCopilotServer, resolveStaticPath, type CopilotServer } from './app.ts'
+import { createCopilotServer, resolveStaticPath, securityHeaders, type CopilotServer } from './app.ts'
 import type { AttendeeClient, CreateBotRequest } from './bot/attendee.ts'
 import { BotManager } from './bot/manager.ts'
 import { loadConfig } from './config.ts'
 import { DeliveryService } from './delivery.ts'
 import { MockLlm } from './llm/mock.ts'
 import { MemoryDocumentStore } from './documents.ts'
+import { RateLimiter } from './rateLimit.ts'
 import { ResumableChannel, SessionRegistry } from './registry.ts'
 import type { MeetingSession } from './session.ts'
 import type { SttProvider } from './stt/types.ts'
@@ -30,7 +33,10 @@ afterEach(async () => {
   running = null
 })
 
-async function start(env: Record<string, string> = {}, extra: { delivery?: DeliveryService; bots?: BotManager | null; stt?: SttProvider } = {}) {
+async function start(
+  env: Record<string, string> = {},
+  extra: { delivery?: DeliveryService; bots?: BotManager | null; stt?: SttProvider; staticDir?: string; limits?: Record<string, RateLimiter> } = {},
+) {
   running = createCopilotServer({
     config: loadConfig({ PORT: '0', ...env }),
     stt: extra.stt ?? nullStt,
@@ -169,6 +175,8 @@ describe('JSON endpoints', () => {
   it('requires the access token on JSON endpoints too', async () => {
     const { url } = await start({ ACCESS_TOKEN: 'secret' })
     const base = url().replace('ws://', 'http://').replace('/ws', '')
+    expect((await fetch(`${base}/api/access`)).status).toBe(403)
+    expect((await fetch(`${base}/api/access?token=secret`)).status).toBe(200)
     expect((await fetch(`${base}/api/brief`, { method: 'POST', body: '{}' })).status).toBe(403)
     expect((await fetch(`${base}/api/deliver`, { method: 'POST', body: '{}' })).status).toBe(403)
   })
@@ -295,6 +303,55 @@ describe('live link sharing', () => {
     owner.send({ type: 'leave' })
     expect(await viewer.next((m) => m.type === 'share.ended')).toEqual({ type: 'share.ended', reason: 'ended' })
     await owner.close()
+  })
+})
+
+describe('production safeguards', () => {
+  it('rate-limits AI endpoints per client with Retry-After', async () => {
+    const { url } = await start({}, { limits: { llm: new RateLimiter({ capacity: 2, perMinute: 1 }) } })
+    const base = url().replace('ws://', 'http://').replace('/ws', '')
+    const brief = () => fetch(`${base}/api/brief`, { method: 'POST', body: JSON.stringify({ event: { title: 'x' }, targetLanguage: 'zh' }) })
+    expect((await brief()).status).toBe(200)
+    expect((await brief()).status).toBe(200)
+    const limited = await brief()
+    expect(limited.status).toBe(429)
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0)
+    expect(((await limited.json()) as { error: string }).error).toContain('频繁')
+  })
+
+  it('refuses new meetings beyond the server cap without breaking existing ones', async () => {
+    const { url, server } = await start({ MAX_SESSIONS: '1' })
+    const first = connect(url())
+    await first.opened
+    first.send({ type: 'start', config })
+    await first.next((m) => m.type === 'ready')
+    const second = connect(url())
+    await second.opened
+    second.send({ type: 'start', config })
+    expect(await second.next((m) => m.type === 'error')).toMatchObject({ recoverable: false, message: expect.stringContaining('繁忙') })
+    expect(server.sessions.size).toBe(1)
+    first.send({ type: 'leave' })
+    await first.close()
+  })
+
+  it('serves the app with security and caching headers', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'copilot-static-'))
+    mkdirSync(join(dir, 'assets'))
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title>')
+    writeFileSync(join(dir, 'assets', 'index-abc.js'), 'console.log(1)')
+    const { url } = await start({}, { staticDir: dir })
+    const base = url().replace('ws://', 'http://').replace('/ws', '')
+    const page = await fetch(`${base}/?token=secret`)
+    expect(page.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(page.headers.get('cache-control')).toBe('no-cache')
+    expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+    expect(page.headers.get('content-security-policy')).toMatch(/connect-src 'self' ws:\/\/127\.0\.0\.1:\d+ wss:\/\/127\.0\.0\.1:\d+/)
+    const asset = await fetch(`${base}/assets/index-abc.js`)
+    expect(asset.headers.get('cache-control')).toContain('immutable')
+  })
+
+  it('never puts a hostile Host header into the CSP', () => {
+    expect(securityHeaders("evil.com; script-src *")['content-security-policy']).toContain("connect-src 'self';")
   })
 })
 

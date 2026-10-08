@@ -256,6 +256,30 @@ describe('MeetingSession phase 1', () => {
     expect(byRole('[role:analyst]')[0].documents).toEqual(docs)
   })
 
+  it('pre-warms the copilot cache at the start when the prefix is large, with the same prefix as real suggestions', async () => {
+    const { session, llm } = setup()
+    session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, documents: docs } })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(llm.prewarmed).toHaveLength(1)
+    const warm = llm.prewarmed[0]
+    expect(warm).toMatchObject({ maxTokens: 0, effort: 'low', cacheTtl: '1h', documents: docs })
+
+    session.onSttResult('remote', result('What does the enterprise plan include?'))
+    await session.idle()
+    const real = llm.requests.find((r) => r.system.includes('[role:copilot]'))!
+    expect([real.system, real.cachedContext, real.documents, real.effort, real.cacheTtl]).toEqual([warm.system, warm.cachedContext, warm.documents, warm.effort, warm.cacheTtl])
+  })
+
+  it('skips the pre-warm when there is little to cache or no copilot', async () => {
+    const short = setup()
+    short.session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false } })
+    const off = setup()
+    off.session.handleMessage({ type: 'start', config: { ...baseConfig, documents: docs, copilot: { enabled: false, autoTrigger: false } } })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(short.llm.prewarmed).toHaveLength(0)
+    expect(off.llm.prewarmed).toHaveLength(0)
+  })
+
   it('drops malformed document refs from the client', () => {
     const { session, llm } = setup()
     session.handleMessage({

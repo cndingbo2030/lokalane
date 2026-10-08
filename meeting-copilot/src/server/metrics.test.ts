@@ -9,6 +9,11 @@ describe('estimateCostUsd', () => {
     expect(cost).toBeCloseTo(4 + 2 + 0.2)
   })
 
+  it('prices 1-hour cache writes at twice the input price', () => {
+    const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 1_000_000, cacheWrite1hTokens: 400_000 }
+    expect(estimateCostUsd('claude-opus-5-5', usage)).toBeCloseTo(0.6 * 5 + 0.4 * 8)
+  })
+
   it('returns 0 for unknown models', () => {
     expect(estimateCostUsd('mystery', { inputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 0, cacheWriteTokens: 0 })).toBe(0)
   })
@@ -21,6 +26,7 @@ describe('SessionMetrics', () => {
     const slow: LlmClient = {
       name: 'slow',
       completeJson: async () => ({}) as never,
+      prewarm: async () => {},
       async *streamText(request) {
         now += 800
         yield 'hello'
@@ -40,6 +46,7 @@ describe('SessionMetrics', () => {
       completeJson: async () => {
         throw new Error('boom')
       },
+      prewarm: async () => {},
       // eslint-disable-next-line require-yield
       async *streamText() {
         throw new Error('boom')
@@ -63,6 +70,15 @@ describe('SessionMetrics', () => {
     metrics.rate('b', 'up')
     metrics.rate('b', null)
     expect(metrics.snapshot().suggestions).toMatchObject({ up: 0, down: 1 })
+  })
+
+  it('records the cost of a cache pre-warm without counting it as a call', async () => {
+    const metrics = new SessionMetrics()
+    await metrics.meter(new MockLlm(), 'copilot').prewarm({ model: 'claude-opus-5-5', system: 'x'.repeat(4_000), prompt: 'warmup', maxTokens: 0, effort: 'low' })
+    const copilot = metrics.snapshot().llm.copilot
+    expect(copilot.calls).toBe(0)
+    expect(copilot.cacheWriteTokens).toBeGreaterThan(0)
+    expect(copilot.costUsd).toBeGreaterThan(0)
   })
 
   it('meters structured (JSON) calls too', async () => {
