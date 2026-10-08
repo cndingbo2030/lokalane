@@ -180,7 +180,12 @@ export class SonioxProvider implements SttProvider {
   ) {}
 
   open(options: SttStreamOptions): SttStream {
-    const socket = new WebSocket(this.settings.url ?? SONIOX_URL, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS })
+    const socket = new WebSocket(this.settings.url ?? SONIOX_URL, {
+      // Soniox's current scheme: the key travels with the connection. `api_key` in the
+      // start request is deprecated and being retired.
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
+    })
     const accumulator = new SonioxAccumulator()
     const queue: Uint8Array[] = []
     let open = false
@@ -204,7 +209,6 @@ export class SonioxProvider implements SttProvider {
     socket.on('open', () => {
       socket.send(
         JSON.stringify({
-          api_key: this.apiKey,
           model: this.model,
           audio_format: 'pcm_s16le',
           sample_rate: AUDIO_SAMPLE_RATE,

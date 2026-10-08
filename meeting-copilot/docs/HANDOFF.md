@@ -103,7 +103,7 @@ a44347b Add AI meeting copilot: live transcription, translation and reply sugges
 **语音识别**（`src/server/stt/`）
 - 默认 Soniox `stt-rt-v5`（`wss://stt-rt.soniox.com/transcribe-websocket`，静音超过 3 秒发 keepalive）；备选 Deepgram `nova-3`；另有 `mock`。
 - 断句（`soniox.ts`）：除了 Soniox 自己的端点检测（`<end>`），音频暂停 500 ms（客户端 VAD 停发）且还有未定稿内容时，`PauseFinalizer` 发一次 `{"type":"finalize"}`，收到 `<fin>` 就定稿。每次停顿最多发一次（Soniox 要求先有约 200 ms 静音，且调用太频繁可能断开连接；VAD 的 2.5 s 拖尾满足前者，而且通常 Soniox 自己的端点检测已经先定稿，finalize 只是兜底）。可选 `SONIOX_MAX_ENDPOINT_DELAY_MS`（500–3000）收紧端点上限，留空时不发送该字段。
-- Soniox 官方文档的几条事实：按**打开的流时长**计费（所以对 Soniox 来说 VAD 基本不省钱，它省的是带宽和按音频计费的 Deepgram 费用）；**出错后服务端立即断开连接**；单条流最长 300 分钟，到时返回 413 `max_duration_reached` 并断开，需要开新连接（见 P1 ②）；把 `api_key` 放在首条配置消息里的方式已标为 deprecated，目前仍可用（P3 再迁移）。
+- Soniox 官方文档的几条事实：按**打开的流时长**计费（所以对 Soniox 来说 VAD 基本不省钱，它省的是带宽和按音频计费的 Deepgram 费用）；**出错后服务端立即断开连接**；单条流最长 300 分钟，到时返回 413 `max_duration_reached` 并断开，需要开新连接（见 P1 ②）；鉴权已按官方推荐改为在连接上带 `Authorization: Bearer <key>`（2026-10-08，见 Soniox「WebSocket authentication」指南），首条配置消息里不再带 `api_key`：这个字段已标为 deprecated，文档提到正在退役。密钥错误时 Soniox 不拒绝握手，而是在已打开的连接上回一条 401 错误帧，P1 ② 会把它判为致命错误、不重连。
 - 断流重连（P1 ②）：适配器意外断开时通过 `onClose` 通知会话，会话在下一帧音频时开新流（新的 `AudioClock`），失败退避、致命错误（密钥/余额）不重试；另有 10 秒一次的 ping 存活检测。细节见第 7 节 P1 ②。
 - 服务商选择（`config.ts:38-42`）：
   - `STT_PROVIDER` 留空时，按已填的密钥自动选。

@@ -149,8 +149,10 @@ async function fakeSoniox() {
   const configs: Array<Record<string, unknown>> = []
   const controls: Array<Record<string, unknown> | ''> = []
   const audio = { frames: 0 }
+  const authorization: Array<string | undefined> = []
   let client: WebSocket | undefined
-  server.on('connection', (socket) => {
+  server.on('connection', (socket, request) => {
+    authorization.push(request.headers.authorization)
     client = socket
     socket.on('message', (data, isBinary) => {
       if (isBinary) {
@@ -175,6 +177,7 @@ async function fakeSoniox() {
     configs,
     controls,
     audio,
+    authorization,
     send: (message: unknown) => client!.send(JSON.stringify(message)),
     /** The server ends the connection on its own, as on a server error or restart. */
     drop: () => client!.close(1011, 'internal error'),
@@ -208,6 +211,9 @@ describe('SonioxProvider against a fake Soniox server', () => {
     await vi.waitFor(() => expect(soniox.audio.frames).toBe(1))
     expect(soniox.configs[0]).toMatchObject({ model: 'stt-rt-v5', enable_endpoint_detection: true })
     expect(soniox.configs[0]).not.toHaveProperty('max_endpoint_delay_ms')
+    // The key goes with the connection, not in the (deprecated) start-request field.
+    expect(soniox.authorization).toEqual(['Bearer key'])
+    expect(soniox.configs[0]).not.toHaveProperty('api_key')
 
     // The VAD stopped sending; Soniox still holds the sentence open.
     soniox.send({ tokens: [{ text: 'Is it paid', is_final: false, start_ms: 0, end_ms: 400 }] })
