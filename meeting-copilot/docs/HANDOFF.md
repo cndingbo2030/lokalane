@@ -169,6 +169,8 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 **已知的坑**
 - **`.env` 不会覆盖 shell 里已有的同名变量**（`process.loadEnvFile` 的行为，`config.ts:96-97`）。如果用户的 `~/.zshrc` 里 export 过旧的 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL` 等，`.env` 里的值会被静默忽略。
 - **改了 `.env` 必须 Ctrl+C 再 `npm run dev`**：tsx watch 不监听 `.env`。
+  - 2026-10-08 实测踩过的坑：改 `.env` 后终端出现 `[vite] .env changed, restarting server... server restarted.`，那只是**前端** Vite 重启了，8790 的后端仍是旧配置。现已在 `vite.config.ts` 设 `envDir: false`（前端不读任何 `import.meta.env`，`.env` 只给服务端用），改 `.env` 不再触发 Vite 重启，也不会在会中刷新页面（已实测对照）。
+  - `npm run preflight` 会把正在运行的服务的模型、断句上限和 `.env` 逐项比对，发现旧配置就提示重启。
 - `npm start` 用了 `NODE_ENV=production node ...` 这种内联写法，**Windows 下不可用**（用户用 macOS，暂不影响）。
 - 在沙箱里杀进程不要用不带方括号的 `pkill -f`，它会匹配到自己的 shell 而自杀（退出码 144）。用方括号写法，并单独一条命令执行：
   - `npm run dev` 启动的服务端：`pkill -f "[s]rc/server/index.ts"`；
