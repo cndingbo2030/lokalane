@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import type { AddressInfo } from 'node:net'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WebSocketServer, type WebSocket as ServerSocket } from 'ws'
 import { DeepgramAccumulator, deepgramLanguage } from './deepgram.ts'
 import { MockSttProvider } from './mock.ts'
-import { SonioxAccumulator } from './soniox.ts'
-import type { SttResult } from './types.ts'
+import { PauseFinalizer, SonioxAccumulator, SonioxProvider } from './soniox.ts'
+import type { SttResult, SttStreamOptions } from './types.ts'
 
 const dgResult = (transcript: string, opts: { isFinal?: boolean; speechFinal?: boolean; start?: number; speaker?: number } = {}) => ({
   type: 'Results',
@@ -64,10 +66,160 @@ describe('SonioxAccumulator', () => {
     expect(out[1]).toMatchObject({ text: 'there', isFinal: false, speaker: 'S2' })
   })
 
-  it('flushes on finished and ignores <fin>', () => {
+  it('flushes on finished', () => {
     const acc = new SonioxAccumulator()
     acc.handle({ tokens: [tok('done', true)] })
     expect(acc.handle({ tokens: [tok('<fin>', true)], finished: true })).toMatchObject([{ text: 'done', isFinal: true }])
+    expect(acc.hasOpenUtterance).toBe(false)
+  })
+
+  it('closes the utterance on <fin> (a finalize request completed) and tracks whether one is open', () => {
+    const acc = new SonioxAccumulator()
+    expect(acc.hasOpenUtterance).toBe(false)
+    acc.handle({ tokens: [tok('Is it', false)] })
+    expect(acc.hasOpenUtterance).toBe(true)
+    const out = acc.handle({ tokens: [tok('Is it paid up?', true, { end_ms: 900 }), tok('<fin>', true), tok('So', false)] })
+    expect(out).toEqual([
+      expect.objectContaining({ text: 'Is it paid up?', isFinal: true, endMs: 900 }),
+      expect.objectContaining({ text: 'So', isFinal: false }),
+    ])
+    expect(acc.hasOpenUtterance).toBe(true)
+    expect(acc.handle({ tokens: [tok('So.', true), tok('<end>', true)] })).toMatchObject([{ text: 'So.', isFinal: true }])
+    expect(acc.hasOpenUtterance).toBe(false)
+  })
+})
+
+describe('PauseFinalizer', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function setup(open: { value: boolean }) {
+    vi.useFakeTimers()
+    const finalize = vi.fn()
+    return { finalize, finalizer: new PauseFinalizer(500, () => open.value, finalize) }
+  }
+
+  it('finalizes once per pause in the audio', () => {
+    const { finalize, finalizer } = setup({ value: true })
+    finalizer.onAudio()
+    vi.advanceTimersByTime(400)
+    finalizer.onAudio() // still talking: the pause starts over
+    vi.advanceTimersByTime(499)
+    expect(finalize).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(finalize).toHaveBeenCalledTimes(1)
+
+    finalizer.onResults() // more results during the same pause
+    vi.advanceTimersByTime(5_000)
+    expect(finalize).toHaveBeenCalledTimes(1)
+
+    finalizer.onAudio() // the next sentence
+    vi.advanceTimersByTime(500)
+    expect(finalize).toHaveBeenCalledTimes(2)
+    finalizer.stop()
+  })
+
+  it('waits for the last words when they are recognized after the pause began', () => {
+    const open = { value: false }
+    const { finalize, finalizer } = setup(open)
+    finalizer.onAudio()
+    vi.advanceTimersByTime(500)
+    expect(finalize).not.toHaveBeenCalled() // nothing open yet
+    open.value = true
+    finalizer.onResults()
+    expect(finalize).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing once stopped', () => {
+    const { finalize, finalizer } = setup({ value: true })
+    finalizer.onAudio()
+    finalizer.stop()
+    vi.advanceTimersByTime(1_000)
+    expect(finalize).not.toHaveBeenCalled()
+  })
+})
+
+/** A local stand-in for the Soniox WebSocket API: records what the provider sends and lets the test answer. */
+async function fakeSoniox() {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+  const configs: Array<Record<string, unknown>> = []
+  const controls: Array<Record<string, unknown> | ''> = []
+  const audio = { frames: 0 }
+  let client: ServerSocket | undefined
+  server.on('connection', (socket) => {
+    client = socket
+    socket.on('message', (data, isBinary) => {
+      if (isBinary) {
+        audio.frames++
+        return
+      }
+      const text = data.toString()
+      if (text === '') {
+        // End of stream, as Soniox does it: a last message, then close.
+        controls.push('')
+        socket.send(JSON.stringify({ tokens: [], finished: true }))
+        socket.close()
+        return
+      }
+      const message = JSON.parse(text) as Record<string, unknown>
+      if ('type' in message) controls.push(message)
+      else configs.push(message)
+    })
+  })
+  return {
+    url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    configs,
+    controls,
+    audio,
+    send: (message: unknown) => client!.send(JSON.stringify(message)),
+    close: async () => {
+      for (const socket of server.clients) socket.terminate()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    },
+  }
+}
+
+describe('SonioxProvider against a fake Soniox server', () => {
+  const frame = new Uint8Array(3_200) // 100 ms of 16 kHz PCM16
+  const streamOptions = (results: SttResult[]): SttStreamOptions => ({
+    source: 'remote',
+    languages: ['en'],
+    diarize: true,
+    onResult: (r) => results.push(r),
+    onError: () => {},
+  })
+
+  it('asks Soniox to finalize when the audio pauses mid-utterance, then emits the final', async () => {
+    const soniox = await fakeSoniox()
+    const results: SttResult[] = []
+    const stream = new SonioxProvider('key', 'stt-rt-v5', { url: soniox.url, finalizeAfterGapMs: 20 }).open(streamOptions(results))
+    stream.write(frame)
+    await vi.waitFor(() => expect(soniox.audio.frames).toBe(1))
+    expect(soniox.configs[0]).toMatchObject({ model: 'stt-rt-v5', enable_endpoint_detection: true })
+    expect(soniox.configs[0]).not.toHaveProperty('max_endpoint_delay_ms')
+
+    // The VAD stopped sending; Soniox still holds the sentence open.
+    soniox.send({ tokens: [{ text: 'Is it paid', is_final: false, start_ms: 0, end_ms: 400 }] })
+    await vi.waitFor(() => expect(soniox.controls).toEqual([{ type: 'finalize' }]))
+    soniox.send({ tokens: [{ text: 'Is it paid up?', is_final: true, start_ms: 0, end_ms: 900 }, { text: '<fin>', is_final: true }] })
+    await vi.waitFor(() => expect(results.at(-1)).toMatchObject({ text: 'Is it paid up?', isFinal: true }))
+
+    await stream.close()
+    // The end-of-stream frame is ordered after everything else the provider sent: one finalize, no repeats.
+    expect(soniox.controls).toEqual([{ type: 'finalize' }, ''])
+    await soniox.close()
+  })
+
+  it('sends max_endpoint_delay_ms only when configured', async () => {
+    const soniox = await fakeSoniox()
+    const stream = new SonioxProvider('key', 'stt-rt-v5', { url: soniox.url, maxEndpointDelayMs: 1_000 }).open(streamOptions([]))
+    stream.write(frame)
+    await vi.waitFor(() => expect(soniox.configs).toHaveLength(1))
+    expect(soniox.configs[0]).toMatchObject({ max_endpoint_delay_ms: 1_000 })
+    await stream.close()
+    await soniox.close()
   })
 })
 

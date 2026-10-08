@@ -5,6 +5,8 @@ export interface ServerConfig {
   sttProvider: 'soniox' | 'deepgram' | 'mock'
   sonioxApiKey?: string
   sonioxModel: string
+  /** Soniox `max_endpoint_delay_ms` (500–3000); unset keeps Soniox's default (2000). */
+  sonioxMaxEndpointDelayMs?: number
   deepgramApiKey?: string
   deepgramModel: string
   anthropicConfigured: boolean
@@ -46,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     sttProvider,
     sonioxApiKey,
     sonioxModel: env.SONIOX_MODEL || 'stt-rt-v5',
+    sonioxMaxEndpointDelayMs: endpointDelay(env.SONIOX_MAX_ENDPOINT_DELAY_MS),
     deepgramApiKey,
     deepgramModel: env.DEEPGRAM_MODEL || 'nova-3',
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN),
@@ -85,6 +88,12 @@ function botConfig(env: NodeJS.ProcessEnv): Pick<ServerConfig, 'bot' | 'botUnava
   }
   const audioBaseUrl = `wss://${publicUrl.host}${publicUrl.pathname.replace(/\/+$/, '')}`
   return { bot: { apiKey, baseUrl: env.ATTENDEE_BASE_URL || 'https://app.attendee.dev', audioBaseUrl } }
+}
+
+/** Soniox accepts 500–3000 ms; anything else is dropped rather than risk a rejected stream. */
+function endpointDelay(value: string | undefined): number | undefined {
+  const n = Number(value)
+  return value && Number.isInteger(n) && n >= 500 && n <= 3000 ? n : undefined
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {

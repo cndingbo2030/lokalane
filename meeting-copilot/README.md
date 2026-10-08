@@ -68,6 +68,7 @@ npm run dev               # 同时启动服务端 (8790) 和前端 (5180)
 | 变量 | 作用 |
 |------|------|
 | `SONIOX_API_KEY` | 实时语音识别（默认，中英混说效果好） |
+| `SONIOX_MAX_ENDPOINT_DELAY_MS` | 可选；对方停止说话后，Soniox 最多等多久把这句定稿（500–3000 毫秒，留空为 Soniox 默认的 2000）。调小字幕定稿、翻译和建议都更快，但可能在短停顿处把一句话拆开；超出范围的值会被忽略，启动日志会提示 |
 | `DEEPGRAM_API_KEY` | 备选语音识别（`STT_PROVIDER=deepgram`；Nova-3 的多语言混说模式不含中文，中文会议请固定单一语言或用 Soniox） |
 | `ANTHROPIC_API_KEY` | Claude：实时翻译、实时建议、会议纪要 |
 | `COPILOT_MODEL` / `TRANSLATE_MODEL` / `SUMMARY_MODEL` | 各角色使用的模型，默认 `claude-opus-5-5` |

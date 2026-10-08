@@ -7,6 +7,15 @@ const SONIOX_URL = 'wss://stt-rt.soniox.com/transcribe-websocket'
 const END_TOKEN = '<end>'
 const FIN_TOKEN = '<fin>'
 
+/**
+ * How long the audio must pause before we ask Soniox to finalize. Soniox only detects
+ * an endpoint from audio it receives (up to 2 s of silence by default). Client-side VAD
+ * keeps sending 2.5 s past the end of speech so that normally suffices; this is the
+ * backstop for when a sentence is still open once the audio stops (a longer endpoint
+ * delay, bot audio), so it never waits for the speaker to talk again.
+ */
+export const FINALIZE_AFTER_GAP_MS = 500
+
 interface SonioxToken {
   text: string
   is_final: boolean
@@ -25,18 +34,24 @@ interface SonioxMessage {
 
 /**
  * Turns Soniox token streams into utterance results. Final tokens are buffered
- * until an `<end>` endpoint token (or a speaker change) closes the utterance.
+ * until an `<end>` endpoint token, a `<fin>` (a finalize request completed) or a
+ * speaker change closes the utterance.
  */
 export class SonioxAccumulator {
   private finalTokens: SonioxToken[] = []
+  private open = false
+
+  /** Speech is recognized but no `<end>` / `<fin>` has closed it yet. */
+  get hasOpenUtterance(): boolean {
+    return this.open
+  }
 
   handle(message: SonioxMessage): SttResult[] {
     const results: SttResult[] = []
     const nonFinal: SonioxToken[] = []
 
     for (const token of message.tokens ?? []) {
-      if (token.text === FIN_TOKEN) continue
-      if (token.text === END_TOKEN) {
+      if (token.text === END_TOKEN || token.text === FIN_TOKEN) {
         if (token.is_final) {
           const flushed = this.flush()
           if (flushed) results.push(flushed)
@@ -58,11 +73,12 @@ export class SonioxAccumulator {
     if (message.finished) {
       const flushed = this.flush()
       if (flushed) results.push(flushed)
+      this.open = false
       return results
     }
 
-    const pending = [...this.finalTokens, ...nonFinal]
-    const partial = toResult(pending, false)
+    const partial = toResult([...this.finalTokens, ...nonFinal], false)
+    this.open = partial !== null
     if (partial) results.push(partial)
     return results
   }
@@ -102,16 +118,67 @@ export function sonioxLanguageHints(languages: LanguageCode[]): string[] {
   return languages.filter((l) => l !== 'auto')
 }
 
+/**
+ * Decides when to send Soniox a `finalize` request: once per pause in the audio,
+ * and only while an utterance is open. Soniox asks for ~200 ms of silence before
+ * finalizing and warns that calling it too often can drop the connection; the
+ * VAD hangover provides the silence, one call per pause keeps the rate low.
+ * With continuous audio (VAD off) there are no pauses and endpoint detection
+ * closes utterances on its own.
+ */
+export class PauseFinalizer {
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private paused = false
+  private armed = false
+
+  constructor(
+    private readonly gapMs: number,
+    private readonly canFinalize: () => boolean,
+    private readonly finalize: () => void,
+  ) {}
+
+  /** Audio was just sent. */
+  onAudio(): void {
+    this.armed = true
+    this.paused = false
+    clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.paused = true
+      this.onResults()
+    }, this.gapMs)
+  }
+
+  /** Results arrived: the last words of a sentence can be recognized after the pause began. */
+  onResults(): void {
+    if (!this.paused || !this.armed || !this.canFinalize()) return
+    this.armed = false
+    this.finalize()
+  }
+
+  stop(): void {
+    clearTimeout(this.timer)
+  }
+}
+
+export interface SonioxSettings {
+  /** Upper bound for Soniox endpoint detection, 500–3000 ms (Soniox's default: 2000). Unset: not sent. */
+  maxEndpointDelayMs?: number
+  /** Tests point the provider at a local fake server. */
+  url?: string
+  finalizeAfterGapMs?: number
+}
+
 export class SonioxProvider implements SttProvider {
   readonly name = 'soniox'
 
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
+    private readonly settings: SonioxSettings = {},
   ) {}
 
   open(options: SttStreamOptions): SttStream {
-    const socket = new WebSocket(SONIOX_URL)
+    const socket = new WebSocket(this.settings.url ?? SONIOX_URL)
     const accumulator = new SonioxAccumulator()
     const queue: Uint8Array[] = []
     let open = false
@@ -120,6 +187,11 @@ export class SonioxProvider implements SttProvider {
     const keepAlive = setInterval(() => {
       if (open && Date.now() - lastAudioAt > 3_000) socket.send(JSON.stringify({ type: 'keepalive' }))
     }, 3_000)
+    const finalizer = new PauseFinalizer(
+      this.settings.finalizeAfterGapMs ?? FINALIZE_AFTER_GAP_MS,
+      () => open && socket.readyState === WebSocket.OPEN && accumulator.hasOpenUtterance,
+      () => socket.send(JSON.stringify({ type: 'finalize' })),
+    )
 
     socket.on('open', () => {
       socket.send(
@@ -133,6 +205,7 @@ export class SonioxProvider implements SttProvider {
           enable_language_identification: true,
           enable_speaker_diarization: options.diarize,
           enable_endpoint_detection: true,
+          ...(this.settings.maxEndpointDelayMs ? { max_endpoint_delay_ms: this.settings.maxEndpointDelayMs } : {}),
           client_reference_id: `meeting-copilot-${options.source}`,
         }),
       )
@@ -152,19 +225,25 @@ export class SonioxProvider implements SttProvider {
         options.onError(new Error(`Soniox ${message.error_code ?? ''}: ${message.error_message ?? 'unknown error'}`))
       }
       for (const result of accumulator.handle(message)) options.onResult(result)
+      finalizer.onResults()
     })
 
     socket.on('error', (error) => options.onError(error))
-    socket.on('close', () => clearInterval(keepAlive))
+    socket.on('close', () => {
+      clearInterval(keepAlive)
+      finalizer.stop()
+    })
 
     return {
       write(pcm) {
         lastAudioAt = Date.now()
+        finalizer.onAudio()
         if (open && socket.readyState === WebSocket.OPEN) socket.send(pcm)
         else if (socket.readyState === WebSocket.CONNECTING && queue.length < 100) queue.push(pcm)
       },
       async close() {
         clearInterval(keepAlive)
+        finalizer.stop()
         if (socket.readyState === WebSocket.OPEN) {
           // An empty frame asks Soniox to finalize remaining audio and close.
           socket.send('')

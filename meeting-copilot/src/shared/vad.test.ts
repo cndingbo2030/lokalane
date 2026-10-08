@@ -21,6 +21,14 @@ describe('VoiceGate', () => {
     expect(gate.push(frame(0, 8))).toEqual([])
   })
 
+  it('keeps sending 2.5 s after speech by default, longer than Soniox’s 2 s endpoint delay', () => {
+    const gate = new VoiceGate()
+    expect(gate.push(frame(6000))).toHaveLength(1)
+    let sent = 0
+    for (let i = 0; i < 40; i++) sent += gate.push(frame(0)).length
+    expect(sent).toBe(25) // 25 × 100 ms frames
+  })
+
   it('does not cut off a long monologue', () => {
     const gate = new VoiceGate()
     let sent = 0

@@ -102,7 +102,8 @@ a44347b Add AI meeting copilot: live transcription, translation and reply sugges
 
 **语音识别**（`src/server/stt/`）
 - 默认 Soniox `stt-rt-v5`（`wss://stt-rt.soniox.com/transcribe-websocket`，静音超过 3 秒发 keepalive）；备选 Deepgram `nova-3`；另有 `mock`。
-- 单条流的时长上限以 Soniox 官方文档为准，代码里没有相关处理（见 P1）。
+- 断句（`soniox.ts`）：除了 Soniox 自己的端点检测（`<end>`），音频暂停 500 ms（客户端 VAD 停发）且还有未定稿内容时，`PauseFinalizer` 发一次 `{"type":"finalize"}`，收到 `<fin>` 就定稿。每次停顿最多发一次（Soniox 要求先有约 200 ms 静音，且调用太频繁可能断开连接；VAD 的 2.5 s 拖尾满足前者，而且通常 Soniox 自己的端点检测已经先定稿，finalize 只是兜底）。可选 `SONIOX_MAX_ENDPOINT_DELAY_MS`（500–3000）收紧端点上限，留空时不发送该字段。
+- Soniox 官方文档的几条事实：按**打开的流时长**计费（所以对 Soniox 来说 VAD 基本不省钱，它省的是带宽和按音频计费的 Deepgram 费用）；**出错后服务端立即断开连接**；单条流最长 300 分钟，到时返回 413 `max_duration_reached` 并断开，需要开新连接（见 P1 ②）；把 `api_key` 放在首条配置消息里的方式已标为 deprecated，目前仍可用（P3 再迁移）。
 - 服务商选择（`config.ts:38-42`）：
   - `STT_PROVIDER` 留空时，按已填的密钥自动选。
   - **显式写了 `soniox` / `deepgram` 但对应密钥为空时，会静默退回 mock**，不会改用另一家的密钥。`.env.example` 默认 `STT_PROVIDER=soniox`。
@@ -110,7 +111,7 @@ a44347b Add AI meeting copilot: live transcription, translation and reply sugges
 
 **音频协议**（`src/shared/protocol.ts:231-249`、`src/shared/vad.ts`）
 - 二进制帧 = 5 字节头（1 字节来源：0=我，1=对方；4 字节小端采集时间戳，单位 ms）+ PCM16 16 kHz 单声道，每帧 100 ms。
-- 客户端 VAD（默认开启，界面开关叫「静音时不发送音频（节省识别费用）」）只发送有声片段，含 300 ms 预留和 1.5 s 拖尾。
+- 客户端 VAD（默认开启，界面开关叫「静音时不发送音频（节省识别费用）」）只发送有声片段，含 300 ms 预留和 2.5 s 拖尾（`vad.ts` 的 `hangoverFrames` 默认 25，长于 Soniox 默认 2 s 的端点延迟）。
 - 服务端用 `AudioClock` 把 STT 时间戳（只计发送过的音频）映射回会议真实时间。
 
 **安全**（`src/server/app.ts`、`src/server/net/safeFetch.ts`、`src/server/rateLimit.ts`）
@@ -161,6 +162,8 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 - `ANTHROPIC_AUTH_TOKEN`：与 `ANTHROPIC_API_KEY` 二选一即可启用 Claude。
 - `NODE_ENV`。
 - `ANTHROPIC_BASE_URL`：SDK 隐式读取。
+
+`SONIOX_MAX_ENDPOINT_DELAY_MS`（2026-10-08 新增）已列入 README 表格，含义见第 4 节「语音识别」。
 
 **已知的坑**
 - **`.env` 不会覆盖 shell 里已有的同名变量**（`process.loadEnvFile` 的行为，`config.ts:96-97`）。如果用户的 `~/.zshrc` 里 export 过旧的 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL` 等，`.env` 里的值会被静默忽略。
@@ -229,6 +232,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
    env | grep -E '^(ANTHROPIC|SONIOX|DEEPGRAM|STT_PROVIDER|COPILOT_MODEL|TRANSLATE_MODEL|SUMMARY_MODEL|PORT)'
    ```
    预期**没有输出**。有输出就先 `unset 变量名`，并检查 `~/.zshrc`；否则 `.env` 里填的值不会生效。特别注意 `ANTHROPIC_BASE_URL`，它会把请求发到别处。
+   - 例外：用户的 Mac 上 `ANTHROPIC_BASE_URL` 是 macOS launchd 级设置的（`launchctl getenv ANTHROPIC_BASE_URL` 有值，所有终端都会继承），值正是官方地址 `https://api.anthropic.com`、没有路径（2026-10-08 已核对），**无害，不用处理**。如果看到的是别的值或带了路径（比如 `/v1`），才需要处理。
 2. `node -v` 要 ≥ 22。`cp .env.example .env`，只填 `SONIOX_API_KEY`、`ANTHROPIC_API_KEY`，其他保持默认。
    - 启动前确认没有旧进程占端口：`lsof -nP -iTCP:8790 -sTCP:LISTEN; lsof -nP -iTCP:5180 -sTCP:LISTEN` 应该没有输出（`-sTCP:LISTEN` 不能省，否则会列出 Chrome）。有 PID 就 `kill <PID>`。
    - **只在一个终端里**运行 `npm run dev`。如果日志出现 `5181` 或 `EADDRINUSE`，说明旧的一份还在跑：用户会在不知情的情况下测到旧服务器（读的还是旧 `.env`）。Ctrl+C 后按上一步清掉（P1 ③ 的 `strictPort` 修好后会直接报错退出）。
@@ -253,7 +257,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 **开会时的操作**（标签名与界面一致）：
 1. 先在 Chrome 的一个标签页里用网页版加入 Google Meet。**Copilot 和 Meet 必须在同一个 Chrome 用户资料（Profile）里**，否则选择器里看不到 Meet 标签页。
 2. 回到 Copilot（http://localhost:5180），粘贴会议链接，采集方式保持默认的「线上会议（共享会议标签页 + 麦克风）」，选好语言。
-3. ⚠️ **取消勾选「静音时不发送音频（节省识别费用）」**（见下方 P1 ①）。P1 ① 修好并经彩排验证后可以恢复勾选；不确定就保持不勾选，费用只多几分钱。勾选同意，点「开始：选择会议标签页」。
+3. ⚠️ **取消勾选「静音时不发送音频（节省识别费用）」**（见下方 P1 ①）。P1 ① 已修，但 10-09 仍保持不勾选：Soniox 按流时长计费，不勾选费用基本不变，连续音频也是最成熟的路径。勾选同意，点「开始：选择会议标签页」。
 4. Chrome 弹窗里切到「Chrome 标签页」，选 Meet 所在的标签页。不要选「窗口」或「整个屏幕」，否则会报「没有捕获到会议声音」。确认弹窗底部的音频开关是打开的（App 内的提示叫「同时分享标签页音频」）。如果选完标签页后什么都没出现，切回 Copilot 标签页，看是不是有麦克风授权弹窗在等你点。
 5. Chrome 顶部的共享提示条点「隐藏」即可，**只用 Copilot 的「结束会议」按钮结束**；不要点其他标签页上的「改为共享此标签页」。
 6. **戴耳机**，否则对方的声音会被麦克风再采集一遍。
@@ -281,7 +285,16 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 
 按 ① → ② → ③ → ④ 的顺序做，每项单独提交，带测试，CI 绿后再做下一项。每推送一次，就通知用户 `git pull` 并重启。
 
-**① Soniox 端点与 VAD 冲突（高优先级，尚未复核）**
+**① Soniox 端点与 VAD 冲突 —— ✅ 已实现（2026-10-08），待彩排用真密钥验证**
+- 对照下方「修法」4 条的落实情况：
+  1. ✅ VAD 拖尾改为 2.5 s（`vad.ts` 默认 `hangoverFrames ?? 25`）。Soniox 自己的端点检测正常情况下在拖尾里就能定稿。
+  2. ✅ 根治也一起做了（会前完成，带测试）：音频暂停 500 ms 且还有未定稿内容时发 `{"type":"finalize"}`，`<fin>` 按 `<end>` 处理（`PauseFinalizer`、`SonioxAccumulator`）。作为兜底，正常情况用不到；VAD 关闭时没有停顿，这条路径不会触发。消息格式按 Soniox 官方文档（Manual finalization、WebSocket API 两页）核对过。
+  3. ✅ `max_endpoint_delay_ms` 只作为可选的 `.env` 调节项（`SONIOX_MAX_ENDPOINT_DELAY_MS`，500–3000，超出范围忽略），默认不发送，握手配置不变。只有彩排用真密钥实测通过才建议填。
+  4. ⏳ 开关改名或去掉：会后做（P3）。
+- 测试：`stt.test.ts` 覆盖 `<fin>` 定稿、每次停顿只发一次（假定时器）、与本地假 Soniox 服务器的完整往返（finalize → `<fin>` → 定稿行、配置字段按需发送）；`app.test.ts` 覆盖配置取值范围。
+- 彩排要验证：打开 VAD 时，对方说完一句停下来，灰色临时字幕约 2 秒内变成定稿行。
+- 10-09 的会议仍建议**关掉 VAD**：Soniox 按流时长计费，关掉不多花钱，而连续音频是最成熟的路径。
+- 以下为原始分析（保留备查）。
 - 现象：客户端 VAD 在说话结束 1.5 s 后停止发送音频（`src/shared/vad.ts:34` 的 `hangoverFrames ?? 15`）。但 Soniox 默认要等约 2 s 才发 `<end>`：配置里没设 `max_endpoint_delay_ms`，代码也从不发送 `{"type":"finalize"}`（`src/server/stt/soniox.ts:135` 附近）。
 - 后果：对方说完一句话后如果停下来，这句可能一直不定稿，直到他再开口。翻译（只处理定稿）和建议触发（只看定稿）就会延迟甚至缺失。
 - 修法（按风险从低到高）：

@@ -244,6 +244,16 @@ describe('bot config', () => {
   })
 })
 
+describe('STT config', () => {
+  it('sends a Soniox endpoint delay only when it is within the documented 500–3000 ms', () => {
+    expect(loadConfig({}).sonioxMaxEndpointDelayMs).toBeUndefined()
+    expect(loadConfig({ SONIOX_MAX_ENDPOINT_DELAY_MS: '1000' }).sonioxMaxEndpointDelayMs).toBe(1000)
+    for (const bad of ['', '499', '3001', '1000ms', '1200.5', 'abc']) {
+      expect(loadConfig({ SONIOX_MAX_ENDPOINT_DELAY_MS: bad }).sonioxMaxEndpointDelayMs).toBeUndefined()
+    }
+  })
+})
+
 describe('live link sharing', () => {
   it('lets viewers follow a meeting read-only until the owner stops sharing', async () => {
     const { url } = await start({ ACCESS_TOKEN: 'secret' })

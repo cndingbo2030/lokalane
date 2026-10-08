@@ -31,7 +31,9 @@ export class VoiceGate {
   constructor(options: VoiceGateOptions = {}) {
     this.options = {
       preRollFrames: options.preRollFrames ?? 3,
-      hangoverFrames: options.hangoverFrames ?? 15,
+      // 2.5 s: longer than Soniox's default 2 s endpoint delay, so its own endpoint detection
+      // still hears enough silence to close the sentence before the gate shuts.
+      hangoverFrames: options.hangoverFrames ?? 25,
       minThreshold: options.minThreshold ?? 0.008,
       noiseRatio: options.noiseRatio ?? 3,
     }
