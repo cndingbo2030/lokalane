@@ -44,7 +44,8 @@ AI 会议助手：粘贴 **Google Meet / Microsoft Teams / Zoom / 腾讯会议�
    如果下载 Electron 很慢或失败，可跳过桌面版组件：macOS / Linux 用 `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install`；Windows PowerShell 先执行 `$env:ELECTRON_SKIP_BINARY_DOWNLOAD=1`，再执行 `npm install`。
 3. 复制 `.env.example` 为 `.env`，填入 `ANTHROPIC_API_KEY` 和 `SONIOX_API_KEY`（只有 Deepgram 时填 `DEEPGRAM_API_KEY` 并把 `STT_PROVIDER` 改为 `deepgram`）。
 4. 启动：`npm run dev`，用 Chrome 打开 http://localhost:5180 。
-5. **2 分钟自检**：打开 http://localhost:8790/health ，应看到 `"stt":"soniox"`、`"llm":"anthropic"`。然后在首页选「线下会议（仅麦克风）」→ 勾选同意 → 开始，中英文各说一句：出现字幕说明语音识别正常，出现翻译说明 Claude 正常；在右侧输入框问 AI 一个问题，出现建议卡片即全部正常。结束这场测试会议即可。
+5. **一键自检**（推荐每次开会前都跑）：在 `meeting-copilot` 目录运行 `npm run preflight`（不用先启动服务）。它会检查 Node 版本、`.env`、终端里会覆盖 `.env` 的变量、已在运行的服务，并用你的密钥**真实调用**一次 Claude，再把一句 macOS 合成的英文测试语音送去识别。约 10 秒后逐项给出 ✅ / ⚠️ / ❌ 和修复方法，不会打印任何密钥。
+   **2 分钟浏览器自检**：打开 http://localhost:8790/health ，应看到 `"stt":"soniox"`、`"llm":"anthropic"`。然后在首页选「线下会议（仅麦克风）」→ 勾选同意 → 开始，中英文各说一句：出现字幕说明语音识别正常，出现翻译说明 Claude 正常；在右侧输入框问 AI 一个问题，出现建议卡片即全部正常。结束这场测试会议即可。
 6. **正式开会**：先在 Chrome 的一个标签页里用网页版加入 Google Meet；回到本工具，粘贴会议链接，选「线上会议（共享会议标签页 + 麦克风）」，选择会议语言和翻译语言，填写会前简报（可上传报价单等资料），勾选同意后点「开始」。在弹窗中选 **Google Meet 所在的标签页**，并打开 **「同时分享标签页音频」**。选完后 Chrome 会停留在本工具页面，第一次使用时在这里允许麦克风即可；要看会议画面再切到会议标签页。请戴耳机。可点「画中画提词器」，让建议浮在会议画面上方。
 7. 会后：点「生成会议纪要」，得到纪要、决定事项、待办和跟进邮件；可导出逐字稿、下载录音。
 

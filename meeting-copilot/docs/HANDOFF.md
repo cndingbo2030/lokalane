@@ -228,6 +228,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 目前**没有线上地址**。进度：用户已经 `git clone`、`npm install` 成功，下一步是配置 `.env`。
 
 **会前自检**（10-08 先做一遍；每次 `git pull` 后、以及 10-09 11:30 前再做一遍）：
+0. **先运行 `npm run preflight`**（2026-10-08 新增，在 `lokalane/meeting-copilot` 目录，不用先启动服务）：自动完成下面第 1–3 步的检查（Node 版本、`.env`、终端变量覆盖、`.env` 里的 PORT、已在运行的服务是不是模拟模式），并用真密钥对每个配置的 Claude 模型各发一个很小的请求（参数和翻译角色相同），再用 macOS `say` 合成一句英文送去语音识别、核对识别结果。全部 ✅ 再做第 4–5 步的浏览器自检；有 ❌ 就按提示改，退出码 1。不会打印任何密钥。下面第 1–3 步保留，用来解释和手动排查。
 1. 在 `lokalane/meeting-copilot` 目录（不是根目录）执行：
    ```bash
    env | grep -E '^(ANTHROPIC|SONIOX|DEEPGRAM|STT_PROVIDER|COPILOT_MODEL|TRANSLATE_MODEL|SUMMARY_MODEL|PORT)'
@@ -370,6 +371,8 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 - 风险提示：这两项都依赖较新的 Chrome API，必须让用户在彩排里实测；没把握就留到会后做，会前靠 P0 的操作说明兜底。
 
 ### P2 — 会前一键自检（P1 全部完成后，时间允许就会前做，否则会后做）
+> **命令行版已完成（2026-10-08）**：`npm run preflight`，检查逻辑在 `src/server/preflight.ts`（带测试），命令行入口在 `src/eval/preflight.ts`。入口放在 `src/eval` 是因为要复用 `wav.ts`，而 `tsconfig.desktop.json` 不包含 `src/eval`。下面的**界面版**留到会后做：可以复用 `preflight.ts` 的检查函数（比如加一个 `/api/preflight` 接口），再补上浏览器才能测的麦克风电平和标签页音频。
+
 在界面里一键检查：
 - 麦克风电平；
 - 标签页音频里是否真的有声音；
@@ -429,6 +432,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 | VAD 与时钟 | `src/shared/vad.ts` |
 | 桌面版 | `src/desktop/main.ts`、`preload.ts`、`settings.ts` |
 | 费用与延迟指标 | `src/server/metrics.ts`；界面 `src/web/components/MetricsBar.tsx` |
+| 会前自检（`npm run preflight`） | 检查逻辑 `src/server/preflight.ts`；命令行入口 `src/eval/preflight.ts` |
 
 ## 10. 已知过时的文档（以代码为准，有空时顺手修）
 
