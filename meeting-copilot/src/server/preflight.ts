@@ -172,10 +172,36 @@ export async function checkClaude(llm: LlmClient, model: string, now: () => numb
     : { status: 'ok', title: `Claude ${model}：正常（首字 ${seconds.toFixed(1)} 秒）` }
 }
 
+/**
+ * Catches the commonest paste slips before any request is made (an extra or missing
+ * leading character, quotes, spaces). Only the generic prefix is ever shown.
+ */
+export function anthropicKeyFormat(key: string | undefined): CheckResult | null {
+  if (!key) return null
+  if (/^sk-ant-[A-Za-z0-9_-]+$/.test(key)) return null
+  const start = key.slice(0, 7).replace(/[^A-Za-z0-9_-]/g, '?')
+  return {
+    status: 'fail',
+    title: 'ANTHROPIC_API_KEY 的格式不对',
+    detail: `应该以 sk-ant- 开头，只含字母、数字、- 和 _；现在的开头是「${start}…」。重新从 Claude Console 复制，不要加引号或空格`,
+  }
+}
+
 export function explainClaudeError(error: unknown): { title: string; detail: string } {
   const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status: unknown }).status) : undefined
   const message = error instanceof Error ? error.message : String(error)
-  if (status === 401) return { title: '密钥无效', detail: '检查 .env 里的 ANTHROPIC_API_KEY 是否完整、没有多余空格，以及是否已在 Anthropic Console 被删除' }
+  if (/not scoped to a workspace/i.test(message)) {
+    return {
+      title: '这是组织级密钥，没有绑定工作区',
+      detail: '到 Claude Console 的 API keys 页面，换一把 Scope 为某个工作区（例如 Default）的密钥',
+    }
+  }
+  if (status === 401) {
+    return {
+      title: '密钥无效',
+      detail: `检查 .env 里的 ANTHROPIC_API_KEY 是否完整（开头是 sk-ant-）、没有多余字符，以及是否已在 Claude Console 被删除或过期。服务器返回：${message.slice(0, 160)}`,
+    }
+  }
   if (status === 403) return { title: '没有权限', detail: '检查这个 API 密钥所属的组织／工作区是否有权使用该模型' }
   if (status === 404) return { title: '模型不存在或账户无权使用', detail: '可以在 .env 里把 COPILOT_MODEL、TRANSLATE_MODEL、SUMMARY_MODEL 改为 claude-sonnet-5-5，然后重启' }
   if (/credit balance|billing/i.test(message)) return { title: '账户余额不足', detail: '到 Anthropic Console 的 Billing 页面充值' }

@@ -5,6 +5,7 @@ import { loadConfig } from './config.ts'
 import { MockLlm } from './llm/mock.ts'
 import type { LlmClient } from './llm/types.ts'
 import {
+  anthropicKeyFormat,
   checkClaude,
   checkStt,
   configChecks,
@@ -113,6 +114,20 @@ describe('preflight: Claude', () => {
   it('warns when the first token is slow', async () => {
     let clock = 0
     expect(await checkClaude(new MockLlm(), 'm', () => (clock += 3_500))).toMatchObject({ status: 'warn', detail: expect.stringContaining('claude-sonnet-5-5') })
+  })
+
+  it('catches paste slips in the key before any request, showing only the generic start', () => {
+    expect(anthropicKeyFormat(undefined)).toBeNull()
+    expect(anthropicKeyFormat('sk-ant-usr-17sAbc_def-FwAA')).toBeNull()
+    const extraLetter = anthropicKeyFormat('ssk-ant-usr-17sAbcSECRETdefFwAA')
+    expect(extraLetter).toMatchObject({ status: 'fail', detail: expect.stringContaining('「ssk-ant…」') })
+    expect(JSON.stringify(extraLetter)).not.toContain('SECRET')
+    expect(anthropicKeyFormat('"sk-ant-usr-17s"')).toMatchObject({ status: 'fail', detail: expect.stringContaining('「?sk-ant…」') })
+  })
+
+  it('explains an organization key that is not scoped to a workspace', () => {
+    const error = apiError(400, 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header')
+    expect(explainClaudeError(error)).toMatchObject({ title: '这是组织级密钥，没有绑定工作区', detail: expect.stringContaining('Default') })
   })
 
   it('turns API errors into a plain explanation', async () => {

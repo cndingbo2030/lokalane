@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { loadConfig, loadDotEnv } from '../server/config.ts'
 import { AnthropicLlm } from '../server/llm/anthropic.ts'
 import {
+  anthropicKeyFormat,
   checkClaude,
   checkStt,
   configChecks,
@@ -52,7 +53,9 @@ shellOverrides(dotenvText, shell).forEach(show)
 configChecks(config, process.env).forEach(show)
 show(await runningServer(config.port))
 
-if (config.anthropicConfigured) {
+const keyFormat = anthropicKeyFormat(process.env.ANTHROPIC_API_KEY)
+if (keyFormat) show(keyFormat)
+else if (config.anthropicConfigured) {
   const llm = new AnthropicLlm()
   for (const model of new Set(Object.values(config.models))) {
     console.log(`⏳ 正在测试 Claude ${model}…`)
