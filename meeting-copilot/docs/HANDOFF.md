@@ -229,7 +229,10 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
    env | grep -E '^(ANTHROPIC|SONIOX|DEEPGRAM|STT_PROVIDER|COPILOT_MODEL|TRANSLATE_MODEL|SUMMARY_MODEL|PORT)'
    ```
    预期**没有输出**。有输出就先 `unset 变量名`，并检查 `~/.zshrc`；否则 `.env` 里填的值不会生效。特别注意 `ANTHROPIC_BASE_URL`，它会把请求发到别处。
-2. `cp .env.example .env`，填 `SONIOX_API_KEY`、`ANTHROPIC_API_KEY`，然后 `npm run dev`。
+2. `node -v` 要 ≥ 22。`cp .env.example .env`，只填 `SONIOX_API_KEY`、`ANTHROPIC_API_KEY`，其他保持默认。
+   - 启动前确认没有旧进程占端口：`lsof -nP -iTCP:8790 -sTCP:LISTEN; lsof -nP -iTCP:5180 -sTCP:LISTEN` 应该没有输出（`-sTCP:LISTEN` 不能省，否则会列出 Chrome）。有 PID 就 `kill <PID>`。
+   - **只在一个终端里**运行 `npm run dev`。如果日志出现 `5181` 或 `EADDRINUSE`，说明旧的一份还在跑：用户会在不知情的情况下测到旧服务器（读的还是旧 `.env`）。Ctrl+C 后按上一步清掉（P1 ③ 的 `strictPort` 修好后会直接报错退出）。
+   - 如果 `npm run dev` 报 esbuild 相关错误：`npm install-scripts approve esbuild && npm rebuild esbuild`。
 3. 检查启动日志：应该是 `STT: soniox` 和 `LLM: anthropic (claude-opus-5-5)`。如果显示 `STT: mock (set SONIOX_API_KEY …)` 或 `LLM: mock (set ANTHROPIC_API_KEY …)`，说明没读到密钥。
    - 注意：`/health` 和启动日志只能说明"密钥已填"，**不能说明密钥有效**。
 4. **用真密钥跑一遍演示**：打开 http://localhost:5180，点「试用演示会议」。演示的字幕是内置脚本，但翻译和建议走真实的 Claude，所以能验证 Claude 密钥、额度和模型权限，不需要说话。看到翻译和建议卡片出现，就说明 Claude 链路正常。
@@ -254,7 +257,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 4. Chrome 弹窗里切到「Chrome 标签页」，选 Meet 所在的标签页。不要选「窗口」或「整个屏幕」，否则会报「没有捕获到会议声音」。确认弹窗底部的音频开关是打开的（App 内的提示叫「同时分享标签页音频」）。如果选完标签页后什么都没出现，切回 Copilot 标签页，看是不是有麦克风授权弹窗在等你点。
 5. Chrome 顶部的共享提示条点「隐藏」即可，**只用 Copilot 的「结束会议」按钮结束**；不要点其他标签页上的「改为共享此标签页」。
 6. **戴耳机**，否则对方的声音会被麦克风再采集一遍。
-7. 需要时点「画中画提词器」；想主动要建议时点「立即建议」。Chrome 同时只允许一个画中画窗口：Meet 自己的自动画中画会把提词器顶掉。建议在 `meet.google.com` 的网站设置里把「自动画中画」设为「屏蔽」；提词器消失了就回 Copilot 再点一次。
+7. 需要时点「画中画提词器」；想主动要建议时点「立即建议」。对方某句问题一直是灰色、没有翻译时，把要点打进右侧输入框问 AI。
 
 **会中禁忌**：
 - **不要点 Chrome 顶部的「停止共享」**，也不要关掉 Meet 标签页：Copilot 这场会议会立即结束。
@@ -265,7 +268,14 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 
 **热修规则**：10-09 10:00 SGT 前可以推送修复，推送后让用户 `git pull`、Ctrl+C 停掉、`npm run dev` 重启，再跑一遍会前自检。10:00 之后代码冻结。修复必须推到用户正在跟踪的分支（见第 2 节）。
 
-**会前风险排查的来源**：原会话做过一轮会前风险排查，覆盖"Soniox 实时链路""Claude 调用参数""macOS Chrome 标签页音频采集"三个方向；P0 中麦克风授权、Chrome 用户资料、画中画冲突、共享提示条，以及 P1 ①③④ 都来自这里。"macOS 安装配置"方向的结果没有取回。这些结论**尚未经过对抗式复核**：实现 P1 前先自己读代码确认。
+**会前风险排查的来源**：原会话做过一轮会前风险排查，覆盖四个方向：Soniox 实时链路、Claude 调用参数、macOS Chrome 标签页音频采集、macOS 安装配置。每条结论都经过了对抗式复核。
+- 本节和 P1 里的条目都是**复核后成立**的。
+- 以下几条**被复核推翻**，不要再做：
+  - "会议结果 `maxTokens: 8_000` 会被 thinking 挤爆"；
+  - "Meet 自带的画中画会顶掉提词器"；
+  - "翻译逐句调用 Opus 的延迟和限流风险"（作为缺陷不成立，但 P0 第 4 步用真密钥跑演示仍然值得做）；
+  - "README 自检只覆盖麦克风模式"。
+- 实现 P1 前仍要自己读代码确认。
 
 ### P1 — 实时链路的可靠性（**会前必修**：10-08 当天完成，10-09 10:00 SGT 代码冻结前必须推送）
 
@@ -274,10 +284,12 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 **① Soniox 端点与 VAD 冲突（高优先级，尚未复核）**
 - 现象：客户端 VAD 在说话结束 1.5 s 后停止发送音频（`src/shared/vad.ts:34` 的 `hangoverFrames ?? 15`）。但 Soniox 默认要等约 2 s 才发 `<end>`：配置里没设 `max_endpoint_delay_ms`，代码也从不发送 `{"type":"finalize"}`（`src/server/stt/soniox.ts:135` 附近）。
 - 后果：对方说完一句话后如果停下来，这句可能一直不定稿，直到他再开口。翻译（只处理定稿）和建议触发（只看定稿）就会延迟甚至缺失。
-- 修法（任选一种，需要用真密钥验证，并补测试）：
-  - 在 Soniox 配置里加 `max_endpoint_delay_ms: 1000`（取值范围 500–3000）；
-  - 或在 VAD 关闭发送前发一次 `{"type":"finalize"}`；
-  - 或把拖尾加到 2.5 s 以上。
+- 修法（按风险从低到高）：
+  1. **先做，最安全**：把 `src/shared/vad.ts:34` 的 `hangoverFrames: options.hangoverFrames ?? 15` 改为 `?? 25`（2.5 s，长于 Soniox 默认的 2000 ms 端点延迟）。只改浏览器端，不往 Soniox 发任何新东西；`vad.test.ts` 要么显式传了 `hangoverFrames`，要么期望全部帧都发送，所以不受影响。机器人接入（`src/server/bot/ingest.ts:53`）也会用上这个默认值。
+     - 不要改 `SetupPanel.tsx:41` 的 `defaultForm.vad`：浏览器里已保存的表单会覆盖默认值（`App.tsx:54`），改了也不生效。
+  2. 会后再做的根治：静音门关闭时（或无音频约 500 ms 后）发送 `{"type":"finalize"}`。**同时**要在 `SonioxAccumulator` 里把 `<fin>` 当作 `<end>` 处理（`soniox.ts:38` 目前忽略 `<fin>`），否则定稿的词会卡在缓冲区里。
+  3. `max_endpoint_delay_ms`（取值 500–3000）：支持情况因模型而异，只有用真密钥在当前模型上实测通过后才考虑。
+  4. 那个开关在 Soniox 上省不了钱（按连接时长计费），可以考虑改名、去掉，或默认关闭。
 - 修好并验证之前，让用户关掉 VAD 开关。Soniox 按打开的流计费，关掉 VAD 基本不增加费用。
 - 注意：Soniox 对未知配置字段的处理方式要先查官方文档确认。字段名写错导致握手被拒，整场会议就没有字幕，比现在的问题更严重。改完要用真密钥实测（让用户在彩排里验证）。
 
@@ -295,19 +307,24 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
   - `close` 回调只清 keepalive（`:157`），`write()` 同样静默丢弃（`:160-164`），close 的 code 和 reason 都不读。
   - 握手被拒（密钥错误、余额不足）时，`unexpected-response` 只报一次错（`:153-155`）。因为注册了这个监听器，ws 不会中止握手，socket 一直停在 CONNECTING：排满 100 帧后开始丢弃，keepalive 定时器要到会议结束才清。
 - 修法：
-  - 两个适配器在非主动关闭时都通知会话（比如新增 `onClose`）；Deepgram 在 `unexpected-response` 里调用 `socket.terminate()`。
+  - 第一步，先让意外断开**可见**：加一个 `closing` 标记（在 `close()` 里置位），在 `on('close')`（`soniox.ts:158`）里，非主动关闭时调用 `onError` 或新增的 `onClose`。
+  - 两个适配器在非主动关闭时都通知会话；Deepgram 在 `unexpected-response` 里调用 `socket.terminate()`。
+  - Soniox 返回 400/401/402 这类错误码视为致命错误，不重连，直接提示用户检查密钥或余额；keepalive 发送前检查 `readyState`。
   - 会话把该路流从 `streams` 删掉，下一帧音频时自动开新流，并为该路**重建 `AudioClock`**（新流的时间戳从 0 开始）。
   - 未定稿的部分结果要定稿或丢弃，避免界面残留。
   - 加指数退避，避免密钥错误时死循环重连；界面提示"语音识别已重连"。
   - 补单元测试：模拟服务端关闭 → 打开新流 → 时间轴连续。
 
-**③ 小的加固项**（来自风险排查，尚未复核）：
-- `src/server/ai/summarizer.ts:42` 提取会议结果时 `maxTokens: 8_000`。thinking 也计入这个上限，长会议可能报「response was cut off (max_tokens)」。建议改为 `16_000`。
-- `src/server/llm/anthropic.ts` 的 `documentBlocks(...)`：过滤掉不以 `file_` 开头的文档 id（mock 模式留下的 `local_…`），避免整场会议的 AI 请求都报 400。
+**③ 小的加固项**（复核后成立）：
+- `src/server/llm/anthropic.ts` 的 `documentBlocks(...)`（约第 105 行）：先 `const real = documents.filter((d) => !d.id.startsWith('local_'))`，再对 `real` 做 map，`cache_control` 用 `index === real.length - 1`。这样 mock 模式留下的 `local_…` id 不会让整场会议的 AI 请求都报 400。`AnthropicLlm` 只在有真密钥时运行，不影响 mock 模式。
+  - 会后再做：已从 Files API 删除的真实 id 也要处理（比如启动时向服务端校验已保存的文档）。
+- `vite.config.ts`：在 `port: 5180,` 后加 `strictPort: true,`。第二个 `npm run dev` 会直接报错，而不是悄悄换到 5181，让用户测到旧服务器。
 
 **④ 麦克风授权弹窗被藏起来**（来自风险排查，尚未复核）：
 - 现象：`src/web/audio/engine.ts` 先 `getDisplayMedia`（Chrome 会跳到被共享的 Meet 标签页），再请求麦克风。第一次使用、或授权已过期时，麦克风弹窗出现在 Copilot 标签页里，用户看不到，`getUserMedia` 一直挂起，两路音频都不开始。
-- 修法：用 `CaptureController` 加 `setFocusBehavior('no-focus-change')`，让焦点留在 Copilot 标签页（要做特性检测，不支持的浏览器照旧）；或者先请求麦克风再选标签页。再加一个超时提示："请切回本页允许麦克风"。
+- 修法：在 `getDisplayMedia` 前创建 `CaptureController`，拿到流后调用 `setFocusBehavior('no-focus-change')`，让焦点留在 Copilot 标签页（要做特性检测，不支持的浏览器照旧，位置在 `engine.ts:103-115`）；或者先请求麦克风再选标签页。再加一个超时提示："请切回本页允许麦克风"。
+- 同时在 `getDisplayMedia` 的选项里加 `surfaceSwitching: 'exclude'`（`engine.ts:110`），去掉 Chrome 共享条上的「改为共享此标签页」按钮。点了这个按钮，对方的声音会被悄悄换成别的标签页。
+- 风险提示：这两项都依赖较新的 Chrome API，必须让用户在彩排里实测；没把握就留到会后做，会前靠 P0 的操作说明兜底。
 
 ### P2 — 会前一键自检（P1 全部完成后，时间允许就会前做，否则会后做）
 在界面里一键检查：
@@ -317,6 +334,10 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 - 首字延迟。
 
 结果给出可操作的中文提示。这样第 5 节和 P0 里那些"密钥已填但无效""shell 变量覆盖 .env"的坑，都能在界面上直接发现。
+
+相关的服务端改进：
+- 启动时或在 `/health` 里验证 Soniox 和 Anthropic 密钥，让坏密钥在会前暴露，而不是等到第一段音频。
+- `config.ts:96-97`：用 `util.parseEnv` 让 `.env` 优先于 shell 变量，或者至少在启动日志里打印每个密钥的来源（shell 还是 .env）。设置了 `ANTHROPIC_BASE_URL` 或 `ANTHROPIC_AUTH_TOKEN` 时给出警告。
 
 ### P3 — 小修与 `PLAN.md` 中未勾选的项
 - `npm start` 跨平台；
