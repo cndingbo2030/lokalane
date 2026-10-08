@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ServerMessage, SessionConfig } from '../shared/protocol.ts'
 import { encodeAudioFrame } from '../shared/protocol.ts'
 import { DEMO_SCRIPT, playDemo } from './demo.ts'
@@ -149,7 +149,7 @@ describe('MeetingSession', () => {
     })
     session.onSttResult('remote', result('Let us sign next week.'))
     session.handleMessage({ type: 'summary' })
-    await new Promise((r) => setTimeout(r, 50))
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'outcomes')).toBe(true))
     const types = messages.map((m) => m.type)
     expect(types).toEqual(expect.arrayContaining(['summary.start', 'summary.delta', 'summary.done', 'outcomes.start', 'outcomes']))
     expect(types.indexOf('outcomes.start')).toBeGreaterThan(types.indexOf('summary.done'))
@@ -181,7 +181,7 @@ describe('MeetingSession', () => {
     session.handleMessage({ type: 'start', config: { ...baseConfig, translate: false, copilot: { enabled: false, autoTrigger: false } } })
     session.onSttResult('remote', result('Let us sign next week.'))
     session.handleMessage({ type: 'summary' })
-    await new Promise((r) => setTimeout(r, 50))
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'outcomes')).toBe(true))
     expect(messages.find((m) => m.type === 'summary.done')).toEqual({ type: 'summary.done' })
     expect(messages.find((m) => m.type === 'outcomes')).toMatchObject({ type: 'outcomes', error: expect.stringContaining('boom') })
   })
@@ -243,12 +243,12 @@ describe('MeetingSession phase 1', () => {
   })
 
   it('sends documents to the copilot and summary but not the translator', async () => {
-    const { session, llm } = setup()
+    const { session, llm, messages } = setup()
     session.handleMessage({ type: 'start', config: { ...baseConfig, documents: docs } })
     session.onSttResult('remote', result('What does the enterprise plan include?'))
     await session.idle()
     session.handleMessage({ type: 'summary' })
-    await new Promise((r) => setTimeout(r, 50))
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'outcomes')).toBe(true))
     const byRole = (tag: string) => llm.requests.filter((r) => r.system.includes(tag))
     expect(byRole('[role:translator]')[0].documents).toBeUndefined()
     expect(byRole('[role:copilot]')[0].documents).toEqual(docs)
