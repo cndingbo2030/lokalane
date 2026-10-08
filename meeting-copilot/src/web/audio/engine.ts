@@ -25,6 +25,66 @@ export interface EngineOptions {
 
 export class CaptureError extends Error {}
 
+/** After this long without an answer, the microphone prompt is probably out of sight. */
+const MIC_PROMPT_HINT_MS = 4_000
+
+/** Chrome's Conditional Focus API (`CaptureController`); not in TypeScript's DOM types yet. */
+interface FocusController {
+  setFocusBehavior(behavior: 'focus-captured-surface' | 'no-focus-change'): void
+}
+
+/**
+ * A capture controller that keeps this tab in front once the user picks the meeting
+ * tab, so the microphone prompt that follows is seen here. Undefined where the API is
+ * missing; Chrome then switches to the shared tab, as before. The behavior can only be
+ * set before getDisplayMedia() is called (or right after it resolves).
+ */
+export function keepFocusController(scope: object = globalThis): FocusController | undefined {
+  const Controller = (scope as { CaptureController?: new () => FocusController }).CaptureController
+  if (typeof Controller !== 'function') return undefined
+  try {
+    const controller = new Controller()
+    controller.setFocusBehavior('no-focus-change')
+    return controller
+  } catch {
+    return undefined
+  }
+}
+
+export function tabCaptureOptions(controller?: FocusController): DisplayMediaStreamOptions & Record<string, unknown> {
+  // Chrome-specific hints are not in lib.dom yet; they are ignored elsewhere.
+  return {
+    video: true,
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    preferCurrentTab: false,
+    selfBrowserSurface: 'exclude',
+    // No "Share this tab instead" button on Chrome's sharing bar: one click there would
+    // silently swap the meeting audio for another tab's.
+    surfaceSwitching: 'exclude',
+    systemAudio: 'include',
+    ...(controller ? { controller } : {}),
+  }
+}
+
+/**
+ * Resolves like `pending`. If that takes longer than `afterMs`, shows `hint` as the tab
+ * title meanwhile: unlike anything on the page, it is visible from other tabs too.
+ */
+export async function withTitleHint<T>(pending: Promise<T>, doc: { title: string } | undefined, hint: string, afterMs: number): Promise<T> {
+  if (!doc) return pending
+  let saved: string | undefined
+  const timer = setTimeout(() => {
+    saved = doc.title
+    doc.title = hint
+  }, afterMs)
+  try {
+    return await pending
+  } finally {
+    clearTimeout(timer)
+    if (saved !== undefined) doc.title = saved
+  }
+}
+
 /**
  * Captures meeting audio (a shared browser tab running Meet / Teams / Zoom /
  * Tencent Meeting web) and the microphone as two separate sources, converts
@@ -48,9 +108,15 @@ export class AudioEngine {
 
     let mic: MediaStream
     try {
-      mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      })
+      // If Chrome moved to the meeting tab anyway, the prompt waits unseen on this one.
+      mic = await withTitleHint(
+        navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        }),
+        typeof document === 'undefined' ? undefined : document,
+        '🎙 请回到此页允许麦克风',
+        MIC_PROMPT_HINT_MS,
+      )
     } catch {
       remote?.getTracks().forEach((t) => t.stop())
       throw new CaptureError('无法访问麦克风，请在浏览器地址栏允许麦克风权限。')
@@ -101,18 +167,9 @@ export class AudioEngine {
   }
 
   private async captureTab(): Promise<MediaStream> {
-    // Chrome-specific hints are not in lib.dom yet; they are ignored elsewhere.
-    const options: DisplayMediaStreamOptions & Record<string, unknown> = {
-      video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      preferCurrentTab: false,
-      selfBrowserSurface: 'exclude',
-      surfaceSwitching: 'include',
-      systemAudio: 'include',
-    }
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia(options)
+      stream = await navigator.mediaDevices.getDisplayMedia(tabCaptureOptions(keepFocusController()))
     } catch {
       throw new CaptureError('已取消共享。请选择会议所在的浏览器标签页，并勾选「同时分享标签页音频」。')
     }

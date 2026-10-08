@@ -259,8 +259,8 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 1. 先在 Chrome 的一个标签页里用网页版加入 Google Meet。**Copilot 和 Meet 必须在同一个 Chrome 用户资料（Profile）里**，否则选择器里看不到 Meet 标签页。
 2. 回到 Copilot（http://localhost:5180），粘贴会议链接，采集方式保持默认的「线上会议（共享会议标签页 + 麦克风）」，选好语言。
 3. ⚠️ **取消勾选「静音时不发送音频（节省识别费用）」**（见下方 P1 ①）。P1 ① 已修，但 10-09 仍保持不勾选：Soniox 按流时长计费，不勾选费用基本不变，连续音频也是最成熟的路径。勾选同意，点「开始：选择会议标签页」。
-4. Chrome 弹窗里切到「Chrome 标签页」，选 Meet 所在的标签页。不要选「窗口」或「整个屏幕」，否则会报「没有捕获到会议声音」。确认弹窗底部的音频开关是打开的（App 内的提示叫「同时分享标签页音频」）。如果选完标签页后什么都没出现，切回 Copilot 标签页，看是不是有麦克风授权弹窗在等你点。
-5. Chrome 顶部的共享提示条点「隐藏」即可，**只用 Copilot 的「结束会议」按钮结束**；不要点其他标签页上的「改为共享此标签页」。
+4. Chrome 弹窗里切到「Chrome 标签页」，选 Meet 所在的标签页。不要选「窗口」或「整个屏幕」，否则会报「没有捕获到会议声音」。确认弹窗底部的音频开关是打开的（App 内的提示叫「同时分享标签页音频」）。选完后页面**停留在 Copilot**（P1 ④），如果有麦克风授权弹窗就在这页点「访问此网站时允许」；要看会议画面时再手动切到 Meet 标签页。如果 Copilot 的标签页标题变成「🎙 请回到此页允许麦克风」，说明授权弹窗还在等你。
+5. Chrome 顶部的共享提示条点「隐藏」即可，**只用 Copilot 的「结束会议」按钮结束**。共享条上已经没有「改为共享此标签页」按钮（P1 ④）。
 6. **戴耳机**，否则对方的声音会被麦克风再采集一遍。
 7. 需要时点「画中画提词器」；想主动要建议时点「立即建议」。对方某句问题一直是灰色、没有翻译时，把要点打进右侧输入框问 AI。
 
@@ -355,7 +355,15 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
   - 会后再做：已从 Files API 删除的真实 id 也要处理（比如启动时向服务端校验已保存的文档）。
 - `vite.config.ts`：在 `port: 5180,` 后加 `strictPort: true,`。第二个 `npm run dev` 会直接报错，而不是悄悄换到 5181，让用户测到旧服务器。
 
-**④ 麦克风授权弹窗被藏起来**（来自风险排查，尚未复核）：
+**④ 麦克风授权弹窗被藏起来 —— ✅ 已实现（2026-10-08），待彩排在真 Chrome 里验证**
+- `keepFocusController()`：有 `CaptureController` 时，在调用 `getDisplayMedia` **之前**设置 `setFocusBehavior('no-focus-change')`（MDN：调用前可设置，没有时序竞争）。用户选完 Meet 标签页后**停留在 Copilot 页**，紧接着的麦克风授权弹窗就在眼前。没有这个 API 或调用被拒时照旧（Chrome 跳到被共享的标签页）。TypeScript 6 的 DOM 类型里还没有它，所以用了本地最小类型加运行时特性检测。
+- `tabCaptureOptions()`：`surfaceSwitching: 'exclude'`，Chrome 共享条上不再出现「改为共享此标签页」。
+- `withTitleHint()`：麦克风授权 4 秒没有回应时，把**标签页标题**改成「🎙 请回到此页允许麦克风」（在别的标签页也能从标签栏看到），拿到结果后恢复原标题。这是没有 `CaptureController` 时的兜底。
+- 测试：`src/web/audio/engine.test.ts`（特性检测与回退、选项、标题提示的显示与恢复）。
+- 彩排要验证：点「开始：选择会议标签页」→ 选 Meet 标签页后页面停在 Copilot；首次使用时麦克风弹窗直接可见；共享条上没有「改为共享此标签页」。
+- 以下为复核后的原始条目（保留备查）。
+
+**（原始条目）④ 麦克风授权弹窗被藏起来**（来自风险排查，尚未复核）：
 - 现象：`src/web/audio/engine.ts` 先 `getDisplayMedia`（Chrome 会跳到被共享的 Meet 标签页），再请求麦克风。第一次使用、或授权已过期时，麦克风弹窗出现在 Copilot 标签页里，用户看不到，`getUserMedia` 一直挂起，两路音频都不开始。
 - 修法：在 `getDisplayMedia` 前创建 `CaptureController`，拿到流后调用 `setFocusBehavior('no-focus-change')`，让焦点留在 Copilot 标签页（要做特性检测，不支持的浏览器照旧，位置在 `engine.ts:103-115`）；或者先请求麦克风再选标签页。再加一个超时提示："请切回本页允许麦克风"。
 - 同时在 `getDisplayMedia` 的选项里加 `surfaceSwitching: 'exclude'`（`engine.ts:110`），去掉 Chrome 共享条上的「改为共享此标签页」按钮。点了这个按钮，对方的声音会被悄悄换成别的标签页。
@@ -412,7 +420,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
 | 提示词（翻译 / 建议 / 纪要 / 简报 / 会议结果） | `src/server/ai/prompts.ts` 及同目录各角色文件 |
 | 何时触发建议（问句、异议、冷却） | `src/server/triggers.ts`、`src/shared/questions.ts` |
 | 会议编排（音频 → STT → 翻译 / 建议 / 纪要） | `src/server/session.ts` |
-| STT 适配器 | `src/server/stt/soniox.ts`、`deepgram.ts`、`index.ts` |
+| STT 适配器 | `src/server/stt/soniox.ts`、`deepgram.ts`、`index.ts`；共用的握手超时、致命错误判断、存活检测在 `socket.ts` |
 | HTTP / WebSocket 路由、鉴权、限流、安全头 | `src/server/app.ts` |
 | 环境变量 | `src/server/config.ts` + `.env.example` + README + 本文件第 5 节 |
 | 前后端消息协议 | `src/shared/protocol.ts`；观看页放行规则在 `src/server/share.ts` 的 `forViewers()` |
