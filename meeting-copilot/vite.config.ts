@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5180,
+    // A second `npm run dev` must fail loudly instead of moving to 5181 and leaving the
+    // user testing the first, stale server (which still has the old .env).
+    strictPort: true,
     proxy: {
       '/ws': { target: `ws://localhost:${serverPort}`, ws: true },
       '/health': `http://localhost:${serverPort}`,

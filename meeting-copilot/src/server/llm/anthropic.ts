@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { DocumentRef } from '../../shared/protocol.ts'
+import { LOCAL_DOCUMENT_PREFIX } from '../documents.ts'
 import type { LlmClient, LlmJsonRequest, LlmTextRequest, LlmUsage } from './types.ts'
 import { LlmOutputError, LlmRefusalError } from './types.ts'
 
@@ -102,11 +103,16 @@ function usage(u: Anthropic.Beta.BetaUsage): LlmUsage {
   }
 }
 
+/**
+ * Documents uploaded while the server had no Claude key live only in the offline
+ * store; sending their ids would make every request of the meeting fail with a 400.
+ */
 function documentBlocks(documents: DocumentRef[], cache: Anthropic.Beta.BetaCacheControlEphemeral): Anthropic.Beta.BetaRequestDocumentBlock[] {
-  return documents.map((doc, index) => ({
+  const files = documents.filter((doc) => !doc.id.startsWith(LOCAL_DOCUMENT_PREFIX))
+  return files.map((doc, index) => ({
     type: 'document',
     source: { type: 'file', file_id: doc.id },
     title: doc.name,
-    ...(index === documents.length - 1 ? { cache_control: cache } : {}),
+    ...(index === files.length - 1 ? { cache_control: cache } : {}),
   }))
 }

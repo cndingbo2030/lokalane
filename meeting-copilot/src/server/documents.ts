@@ -58,6 +58,9 @@ export class AnthropicDocumentStore implements DocumentStore {
   }
 }
 
+/** Ids of documents kept by the offline store: Claude cannot reference them. */
+export const LOCAL_DOCUMENT_PREFIX = 'local_'
+
 /** Offline stand-in (mock LLM mode): keeps metadata only. */
 export class MemoryDocumentStore implements DocumentStore {
   readonly name = 'memory'
@@ -66,7 +69,7 @@ export class MemoryDocumentStore implements DocumentStore {
   async upload(filename: string, mimeType: string, bytes: Uint8Array): Promise<DocumentRef> {
     const { kind } = documentKind(mimeType, filename)
     validateSize(bytes)
-    const ref: DocumentRef = { id: `local_${randomUUID()}`, name: filename, kind, sizeBytes: bytes.byteLength }
+    const ref: DocumentRef = { id: `${LOCAL_DOCUMENT_PREFIX}${randomUUID()}`, name: filename, kind, sizeBytes: bytes.byteLength }
     this.documents.set(ref.id, ref)
     return ref
   }

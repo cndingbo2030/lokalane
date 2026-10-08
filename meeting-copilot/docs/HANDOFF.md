@@ -236,7 +236,7 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
    - 例外：用户的 Mac 上 `ANTHROPIC_BASE_URL` 是 macOS launchd 级设置的（`launchctl getenv ANTHROPIC_BASE_URL` 有值，所有终端都会继承），值正是官方地址 `https://api.anthropic.com`、没有路径（2026-10-08 已核对），**无害，不用处理**。如果看到的是别的值或带了路径（比如 `/v1`），才需要处理。
 2. `node -v` 要 ≥ 22。`cp .env.example .env`，只填 `SONIOX_API_KEY`、`ANTHROPIC_API_KEY`，其他保持默认。
    - 启动前确认没有旧进程占端口：`lsof -nP -iTCP:8790 -sTCP:LISTEN; lsof -nP -iTCP:5180 -sTCP:LISTEN` 应该没有输出（`-sTCP:LISTEN` 不能省，否则会列出 Chrome）。有 PID 就 `kill <PID>`。
-   - **只在一个终端里**运行 `npm run dev`。如果日志出现 `5181` 或 `EADDRINUSE`，说明旧的一份还在跑：用户会在不知情的情况下测到旧服务器（读的还是旧 `.env`）。Ctrl+C 后按上一步清掉（P1 ③ 的 `strictPort` 修好后会直接报错退出）。
+   - **只在一个终端里**运行 `npm run dev`。如果日志出现 `5181` 或 `EADDRINUSE`，说明旧的一份还在跑：用户会在不知情的情况下测到旧服务器（读的还是旧 `.env`）。Ctrl+C 后按上一步清掉。P1 ③ 已加 `strictPort`：第二份会直接报 `Error: Port 5180 is already in use` 并退出，不会再悄悄换端口。
    - 如果 `npm run dev` 报 esbuild 相关错误：`npm install-scripts approve esbuild && npm rebuild esbuild`。
 3. 检查启动日志：应该是 `STT: soniox` 和 `LLM: anthropic (claude-opus-5-5)`。如果显示 `STT: mock (set SONIOX_API_KEY …)` 或 `LLM: mock (set ANTHROPIC_API_KEY …)`，说明没读到密钥。
    - 注意：`/health` 和启动日志只能说明"密钥已填"，**不能说明密钥有效**。
@@ -344,7 +344,13 @@ npx tsc -b && npx eslint . && npx vitest run && npm run build && node scripts/bu
   - 加指数退避，避免密钥错误时死循环重连；界面提示"语音识别已重连"。
   - 补单元测试：模拟服务端关闭 → 打开新流 → 时间轴连续。
 
-**③ 小的加固项**（复核后成立）：
+**③ 小的加固项 —— ✅ 已实现（2026-10-08）**
+- `documentBlocks` 过滤 `local_` 开头的 id（前缀提成常量 `LOCAL_DOCUMENT_PREFIX`，`documents.ts`），缓存断点落在最后一个真正发送的文档上；`anthropic.test.ts` 有对应测试。
+- `vite.config.ts` 加了 `strictPort: true`。已实测：端口被占时 Vite 直接报 `Error: Port 5180 is already in use` 并退出（代码 1），不会再悄悄换到 5181。
+- 会议结果的 `maxTokens: 8_000` **按复核结论保持不变**。
+- 以下为复核后的原始条目（保留备查）。
+
+**（原始条目）③ 小的加固项**（复核后成立）：
 - `src/server/llm/anthropic.ts` 的 `documentBlocks(...)`（约第 105 行）：先 `const real = documents.filter((d) => !d.id.startsWith('local_'))`，再对 `real` 做 map，`cache_control` 用 `index === real.length - 1`。这样 mock 模式留下的 `local_…` id 不会让整场会议的 AI 请求都报 400。`AnthropicLlm` 只在有真密钥时运行，不影响 mock 模式。
   - 会后再做：已从 Files API 删除的真实 id 也要处理（比如启动时向服务端校验已保存的文档）。
 - `vite.config.ts`：在 `port: 5180,` 后加 `strictPort: true,`。第二个 `npm run dev` 会直接报错，而不是悄悄换到 5181，让用户测到旧服务器。

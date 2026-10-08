@@ -60,6 +60,27 @@ describe('AnthropicLlm', () => {
     expect(content[1]).toMatchObject({ source: { type: 'file', file_id: 'file_2' }, title: 'b.txt', cache_control: { type: 'ephemeral' } })
   })
 
+  it('leaves out documents uploaded without a Claude key, which the API would reject', async () => {
+    const { client, calls } = fakeClient()
+    await collectText(
+      new AnthropicLlm(client).streamText({
+        model: 'm',
+        system: 'rules',
+        documents: [
+          { id: 'file_1', name: 'a.pdf', kind: 'pdf', sizeBytes: 1 },
+          { id: 'local_5f0c2d1e', name: 'old.pdf', kind: 'pdf', sizeBytes: 1 },
+        ],
+        prompt: 'q',
+        maxTokens: 10,
+        effort: 'low',
+      }),
+    )
+    const content = (calls[0] as { messages: Array<{ content: Array<Record<string, unknown>> }> }).messages[0].content
+    expect(content.map((b) => b.type)).toEqual(['document', 'text'])
+    // The cache breakpoint moves to the last document actually sent.
+    expect(content[0]).toMatchObject({ source: { type: 'file', file_id: 'file_1' }, cache_control: { type: 'ephemeral' } })
+  })
+
   it('applies a 1-hour TTL to the stable prefix and caches the instructions when there is no brief', async () => {
     const { client, calls } = fakeClient()
     const llm = new AnthropicLlm(client)
